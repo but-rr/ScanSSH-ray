@@ -1,0 +1,64 @@
+
+# ==========================================
+# SCANSSH-RAY — Git Ignore
+# ==========================================
+
+# --- Environment / Secrets ---
+.env
+
+# --- SSH Keys / Credentials ---
+secrets/
+keys/
+*.pem
+*.ppk
+*.pfx
+*.p12
+id_rsa
+id_rsa_*
+id_ed25519
+id_ed25519_*
+id_ecdsa
+id_ecdsa_*
+
+# --- Go ---
+*.exe
+*.dll
+*.test
+*.out
+coverage.out
+coverage.html
+/bin/
+
+# --- Wails ---
+/build/bin/
+
+# --- Frontend / Svelte / Node ---
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.svelte-kit/
+/frontend/.vite/
+node_modules/
+
+# --- Local Data ---
+*.log
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Temporary Files ---
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
