@@ -1,0 +1,11 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ScanSSH-ray",
+  "outputfilename": "ScanSSH-ray",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": { "name": "ScanSSH-ray" },
+  "info": { "companyName": "ScanSSH-ray", "productName": "ScanSSH-ray", "productVersion": "0.1.0", "copyright": "ScanSSH-ray", "comments": "SSH fleet monitoring for Windows 10" }
+}
