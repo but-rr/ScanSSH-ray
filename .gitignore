@@ -5,6 +5,12 @@
 
 # --- Environment / Secrets ---
 .env
+.env.*
+!.env.example
+/.tools/
+/data/
+/build/bin/
+/frontend/wailsjs/
 
 # --- SSH Keys / Credentials ---
 secrets/
