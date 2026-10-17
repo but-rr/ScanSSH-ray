@@ -3,6 +3,7 @@
   import Icon from '../components/Icon.svelte';
   import { backend } from '../api';
   import type { View, Host } from '../types';
+  import { version } from '../package.json';
 
   let view: View | null = null;
   let connectionError = '';
@@ -20,9 +21,9 @@
   let toastTimer: ReturnType<typeof setTimeout>;
   let journal: HTMLElement;
   const labels: Record<string, string> = {
-    unknown: 'Не проверен', online: 'SSH и интернет доступны', limited: 'Нет интернета через прокси',
+    unknown: 'Не проверен', online: 'SSH и интернет доступны', limited: 'Проверка через прокси не прошла',
     ssh_closed: 'Порт SSH недоступен', unreachable: 'ПК недоступен / таймаут', auth_error: 'Ошибка авторизации SSH',
-    host_key_unknown: 'Подтвердите ключ сервера', host_key_changed: 'Ключ сервера изменился',
+    host_key_changed: 'Ключ сервера изменился',
     host_key_error: 'Ключ сервера отклонён', config_error: 'Проверьте настройки', ssh_error: 'Ошибка соединения SSH',
   };
   const time = (value: string | null | undefined) => value ? new Date(value).toLocaleTimeString('ru-RU') : '—';
@@ -42,7 +43,7 @@
   $: visible = found.slice(page * perPage, (page + 1) * perPage);
   $: cfg = monitor?.config;
   $: canTunnel = !!selected?.internet && !!selected?.ssh && !!selected?.internetCheckedAt && Date.now() - new Date(selected.internetCheckedAt).getTime() < ((cfg?.internetInterval || 30) + 10) * 1000;
-  $: command = selected && cfg ? `ssh -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="${cfg.knownHosts}"${selected.keyPath ? ` -i "${selected.keyPath}"` : ''} -p ${cfg.sshPort} -L 127.0.0.1:${port}:${cfg.proxyHost}:${cfg.proxyPort} ${selected.user}@${selected.ip}` : '';
+  $: command = selected && cfg ? `ssh -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="${cfg.knownHosts}"${selected.keyPath ? ` -i "${selected.keyPath}"` : ''} -p ${cfg.sshPort} -L 127.0.0.1:${port}:${cfg.proxyHost}:${cfg.proxyPort} ${selected.user}@${selected.ip}` : '';
 
   async function refresh() {
     try {
@@ -102,7 +103,7 @@
     <div class="side-spacer"></div>
     <div class="agent-card"><div class="agent-top"><span class:ready={!!monitor} class="agent-dot"></span>{monitor ? 'Локальный движок Go' : 'Загрузка конфигурации'}</div><p>{monitor?.scanning ? 'Выполняются сетевые проверки' : monitor?.auto ? `SSH: ${cfg?.sshInterval} с · Интернет: ${cfg?.internetInterval} с` : 'Автопроверка выключена'}</p></div>
     <button class="nav-item" onclick={() => modal = 'help'}><Icon name="help"/>Как это работает</button>
-    <div class="side-foot"><span>WINDOWS 10</span><span>v0.1.0</span></div>
+    <div class="side-foot"><span>WINDOWS 10</span><span>v{version}</span></div>
   </aside>
 
   <main class="main">
@@ -124,7 +125,7 @@
 
     <section class="stats" aria-label="Сводка мониторинга">
       <div class="stat"><div class="stat-top"><span class="stat-label">Всего устройств</span><span class="stat-icon"><Icon/></span></div><div class="stat-value">{hosts.length}</div><div class="stat-foot">{monitor?.pools.length || 0} пула · {unknown} ещё не проверено</div></div>
-      <div class="stat"><div class="stat-top"><span class="stat-label">С интернетом</span><span class="stat-icon green"><Icon name="globe"/></span></div><div class="stat-value">{online}</div><div class="stat-foot"><span class="good">{hosts.length ? Math.round(online / hosts.length * 100) : 0}%</span> устройств · SSH и HTTPS доступны</div></div>
+      <div class="stat"><div class="stat-top"><span class="stat-label">С интернетом</span><span class="stat-icon green"><Icon name="globe"/></span></div><div class="stat-value">{online}</div><div class="stat-foot"><span class="good">{hosts.length ? Math.round(online / hosts.length * 100) : 0}%</span> устройств · SSH и HTTP доступны</div></div>
       <div class="stat"><div class="stat-top"><span class="stat-label">Без интернета</span><span class="stat-icon yellow"><Icon name="alert"/></span></div><div class="stat-value">{limited}</div><div class="stat-foot">SSH работает · проверка прокси не прошла</div></div>
       <div class="stat"><div class="stat-top"><span class="stat-label">Требуют внимания</span><span class="stat-icon red"><Icon name="terminal"/></span></div><div class="stat-value">{errors}</div><div class="stat-foot">Соединение, авторизация или ключ сервера</div></div>
     </section>
@@ -158,11 +159,11 @@
         <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={16}/></div><div class="detail-host mono">{selected?.ip || '—'}</div><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите устройство в таблице'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span>{selected ? labels[selected.status] || selected.status : 'Нет данных'}</span></div>{#if selected}<p class="detail-message">{selected.message}</p>{/if}</div>
         <div class="detail-section"><div class="section-label">Состояние соединения</div>
           <div class="check-line"><span class="check-name"><Icon name="terminal" size={15}/>Авторизация SSH</span><span class="check-answer" class:ok={selected?.ssh}>{selected?.ssh ? 'Успешно' : selected?.checkedAt ? 'Не подтверждена' : 'Не проверена'}</span></div>
-          <div class="check-line"><span class="check-name"><Icon name="globe" size={15}/>HTTPS через прокси</span><span class="check-answer" class:ok={selected?.internet}>{selected?.internet ? `HTTP ${selected.httpCode}` : selected?.internetCheckedAt ? 'Ошибка' : 'Не проверен'}</span></div>
+          <div class="check-line"><span class="check-name"><Icon name="globe" size={15}/>{cfg?.testUrl.startsWith('https:') ? 'HTTPS' : 'HTTP'} через прокси</span><span class="check-answer" class:ok={selected?.internet}>{selected?.internet ? `HTTP ${selected.httpCode}` : selected?.internetCheckedAt ? 'Ошибка' : 'Не проверен'}</span></div>
           <div class="check-line"><span class="check-name"><Icon name="clock" size={15}/>Задержка SSH</span><span class="check-answer">{selected?.checkedAt ? `${selected.latencyMs} мс` : '—'}</span></div>
           <div class="check-line"><span class="check-name"><Icon name="shield" size={15}/>Файл ключа</span><span class="check-answer key-name" title={selected?.keyPath}>{selected?.keyPath ? selected.keyPath.split(/[\\/]/).pop() : 'Не задан'}</span></div>
           <div class="tiny detail-times">SSH: {time(selected?.checkedAt)}<br/>Интернет: {time(selected?.internetCheckedAt)}</div>
-          {#if pending}<div class="trust-box"><strong>{pending.changed ? 'Ключ сервера изменился' : 'Новый SSH-сервер'}</strong><p>Сверьте SHA256 с ключом на удалённом ПК по доверенному каналу.</p><code>{pending.algorithm}<br/>{pending.fingerprint}</code>{#if !pending.changed}<button class="btn mini" disabled={busy} onclick={() => run(() => backend().TrustHost(pending!.ip, pending!.fingerprint), 'Ключ сохранён. Запустите проверку повторно.')}>Подтвердить этот ключ</button>{:else}<p>Исправьте known_hosts после проверки причины изменения.</p>{/if}</div>{/if}
+          {#if pending}<div class="trust-box"><strong>Ключ сервера изменился</strong><p>Сверьте SHA256 с ключом на удалённом ПК по доверенному каналу.</p><code>{pending.algorithm}<br/>{pending.fingerprint}</code><p>Исправьте known_hosts после проверки причины изменения.</p></div>{/if}
         </div>
         <div class="tunnel-section"><div class="tunnel-heading"><span class="tunnel-title">SSH-туннель</span><span class="tunnel-port">LOCAL FORWARD</span></div>
           {#if view?.tunnel.running}<div class="live-tunnel"><span class="dot ok"></span><strong>Туннель работает</strong><p class="mono">{view.tunnel.localAddress}<br/>через {view.tunnel.ip}</p></div><button class="btn full" disabled={busy} onclick={() => run(() => backend().StopTunnel(), 'Туннель остановлен')}><Icon name="x" size={16}/>Остановить туннель</button>
@@ -189,7 +190,7 @@
       <p class="explanation">В Блокноте укажите <code>SSH_KEY_PATH</code>, при необходимости <code>SSH_KEY_RULES</code>, и профиль <code>PROXY_USER</code> / <code>PROXY_PASSWORD</code>. Сохраните файл, затем нажмите «Перечитать». Действующий туннель при этом остановится.</p>
       <div class="modal-actions"><button class="btn" disabled={busy} onclick={() => run(() => backend().OpenConfig())}>Открыть .env</button><button class="btn primary" disabled={busy} onclick={() => run(() => backend().ReloadConfig(), 'Настройки перечитаны')}>Перечитать</button></div>
     {:else}
-      <div class="explanation"><p><strong>1. SSH.</strong> Go подключается к TCP-порту и проходит авторизацию вашим OpenSSH-ключом. При первом подключении сверьте и подтвердите отпечаток сервера в карточке устройства. Изменённый известный ключ блокируется.</p><p><strong>2. Интернет.</strong> На удалённом Windows-ПК запускается PowerShell и curl.exe. Успех — ответ HTTPS со статусом 2xx через заданный HTTP-прокси. Таймаут, отказ прокси, ошибка TLS и ошибка SSH отображаются отдельно. Интервалы SSH и интернета независимы; рядом показано время каждого результата.</p><p><strong>3. Туннель.</strong> Кнопка открывает порт на 127.0.0.1 и передаёт подключения через выбранный ПК к корпоративному прокси. Нужен разрешённый TCP forwarding в OpenSSH Server. В браузере или другом приложении укажите локальный прокси и авторизацию корпоративного прокси.</p><p><strong>4. Секреты.</strong> Приватные ключи остаются в локальных файлах. Пароли из .env не передаются в интерфейс и отчёты. SSH-подключения закрываются при выходе. .env хранится открытым текстом: ограничьте доступ к нему своей учётной записью Windows.</p><p>Недоступность SSH-порта не доказывает, что ПК выключен. Названия компьютеров не выдумываются: устройства отображаются по их IP.</p></div><div class="modal-actions"><button class="btn primary" onclick={() => modal = ''}>Понятно</button></div>
+      <div class="explanation"><p><strong>1. SSH.</strong> Go подключается к TCP-порту и проходит авторизацию вашим OpenSSH-ключом. Новые ключи серверов автоматически принимаются и сохраняются в known_hosts. Изменённый известный ключ блокируется.</p><p><strong>2. Интернет.</strong> На удалённом Windows-ПК запускается PowerShell и curl.exe. По умолчанию выполняется HTTP HEAD к www.google.com через заданный прокси. Успех — ответ 2xx или 3xx. Редиректы на HTTPS не выполняются. Отказ прокси и ошибки проверки показаны в пояснении под статусом и в журнале.</p><p><strong>3. Туннель.</strong> Кнопка открывает порт на 127.0.0.1 и передаёт подключения через выбранный ПК к корпоративному прокси. Нужен разрешённый TCP forwarding в OpenSSH Server. В браузере или другом приложении укажите локальный прокси и авторизацию корпоративного прокси.</p><p><strong>4. Секреты.</strong> Приватные ключи остаются в локальных файлах. Пароли из .env не передаются в интерфейс и отчёты. SSH-подключения закрываются при выходе. .env хранится открытым текстом: ограничьте доступ к нему своей учётной записью Windows.</p><p>Недоступность SSH-порта не доказывает, что ПК выключен. Названия компьютеров не выдумываются: устройства отображаются по их IP.</p></div><div class="modal-actions"><button class="btn primary" onclick={() => modal = ''}>Понятно</button></div>
     {/if}
   </div></div></div>
 {/if}

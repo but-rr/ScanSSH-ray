@@ -1,6 +1,6 @@
 {
   "name": "scanssh-ray",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": { "dev": "vite --host 127.0.0.1", "check": "svelte-check --tsconfig ./tsconfig.json", "build": "npm run check && vite build" },

@@ -3,7 +3,6 @@ interface Backend {
   GetState(): Promise<View>;
   Scan(): Promise<void>; CancelScan(): Promise<void>; SetAuto(enabled: boolean): Promise<void>;
   ReloadConfig(): Promise<void>; OpenConfig(): Promise<void>;
-  TrustHost(ip: string, fingerprint: string): Promise<void>;
   StartTunnel(ip: string, port: number): Promise<void>; StopTunnel(): Promise<void>;
   ExportReport(): Promise<string>;
 }
