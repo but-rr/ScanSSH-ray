@@ -26,7 +26,6 @@ type Pending struct {
 	Fingerprint string `json:"fingerprint"`
 	Algorithm   string `json:"algorithm"`
 	Changed     bool   `json:"changed"`
-	key         ssh.PublicKey
 }
 
 type Manager struct {
@@ -67,12 +66,17 @@ func (m *Manager) verify(ip string) ssh.HostKeyCallback {
 		}
 		var keyError *knownhosts.KeyError
 		if errors.As(err, &keyError) {
-			changed := len(keyError.Want) > 0
-			m.pending[ip] = Pending{IP: ip, Fingerprint: ssh.FingerprintSHA256(key), Algorithm: key.Type(), Changed: changed, key: key}
-			if changed {
+			if len(keyError.Want) > 0 {
+				m.pending[ip] = Pending{IP: ip, Fingerprint: ssh.FingerprintSHA256(key), Algorithm: key.Type(), Changed: true}
 				return &Failure{"host_key_changed", "Ключ SSH-сервера изменился. Проверьте known_hosts"}
 			}
-			return &Failure{"host_key_unknown", "Подтвердите отпечаток SSH-сервера"}
+			// Accept a new server on first use and persist its identity before login.
+			// An existing different key is handled above and is never overwritten.
+			if err := m.saveHostKey(hostname, key); err != nil {
+				return &Failure{"config_error", "Не удалось автоматически сохранить ключ SSH-сервера в known_hosts"}
+			}
+			delete(m.pending, ip)
+			return nil
 		}
 		return &Failure{"host_key_error", "Ключ SSH-сервера отклонён"}
 	}
@@ -88,41 +92,22 @@ func (m *Manager) Pending() []Pending {
 	return out
 }
 
-func (m *Manager) Trust(ip, fingerprint string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, ok := m.pending[ip]
-	if !ok || p.Fingerprint != fingerprint {
-		return fmt.Errorf("отпечаток устарел: повторите проверку")
-	}
-	if p.Changed {
-		return fmt.Errorf("замена известного ключа запрещена: сверьте ключ на ПК и исправьте known_hosts вручную")
-	}
-	callback, err := knownhosts.New(m.cfg.KnownHosts)
-	if err != nil {
-		return fmt.Errorf("не удалось прочитать known_hosts")
-	}
-	address := m.cfg.Address(ip)
-	if err = callback(address, &net.TCPAddr{IP: net.ParseIP(ip), Port: m.cfg.SSHPort}, p.key); err == nil {
-		delete(m.pending, ip)
-		return nil
-	}
-	var ke *knownhosts.KeyError
-	if !errors.As(err, &ke) || len(ke.Want) > 0 {
-		return fmt.Errorf("known_hosts изменён: повторите проверку")
-	}
+// saveHostKey is called with m.mu held by the verification callback.
+func (m *Manager) saveHostKey(address string, key ssh.PublicKey) error {
 	f, err := os.OpenFile(m.cfg.KnownHosts, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
-		return fmt.Errorf("не удалось записать known_hosts")
+		return err
 	}
 	// Leading newline also handles existing OpenSSH files without a trailing newline.
-	_, err = fmt.Fprintln(f, "\n"+knownhosts.Line([]string{knownhosts.Normalize(address)}, p.key))
-	closeErr := f.Close()
-	if err != nil || closeErr != nil {
-		return fmt.Errorf("ошибка сохранения known_hosts")
+	_, err = fmt.Fprintln(f, "\n"+knownhosts.Line([]string{knownhosts.Normalize(address)}, key))
+	if err == nil {
+		err = f.Sync()
 	}
-	delete(m.pending, ip)
-	return nil
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func (m *Manager) Connect(ctx context.Context, ip string, cached bool) (*ssh.Client, error) {

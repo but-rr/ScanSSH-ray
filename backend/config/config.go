@@ -14,6 +14,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const DefaultTestURL = "http://www.google.com"
+
+const legacyTestURL = "https://www.msftconnecttest.com/connecttest.txt"
+
 type KeyRule struct {
 	Match      string `json:"match"`
 	Path       string `json:"path"`
@@ -127,10 +131,15 @@ func Load(path string) (*Config, error) {
 	if strings.ContainsAny(c.ProxyUser, ":\r\n\x00") || strings.ContainsAny(c.ProxyPassword, "\r\n\x00") {
 		return nil, fmt.Errorf("недопустимые символы в профиле прокси")
 	}
-	c.TestURL = get("TEST_URL", "https://www.msftconnecttest.com/connecttest.txt")
+	c.TestURL = get("TEST_URL", DefaultTestURL)
+	// Existing installations keep their .env when the executable is replaced.
+	// Migrate only the old built-in probe; preserve custom URLs and credentials.
+	if c.TestURL == legacyTestURL {
+		c.TestURL = DefaultTestURL
+	}
 	u, err := url.Parse(c.TestURL)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.TestURL, "\r\n\x00") {
-		return nil, fmt.Errorf("TEST_URL: укажите HTTPS URL без учётных данных")
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.TestURL, "\r\n\x00") {
+		return nil, fmt.Errorf("TEST_URL: укажите HTTP или HTTPS URL без учётных данных")
 	}
 	for _, p := range []struct {
 		name, fallback string

@@ -56,7 +56,7 @@ SSH_KEY_RULES='[{"match":"127.0.0.1","path":"keys/specific","user":"operator","p
 }
 
 func TestConfigRejectsInvalidValuesWithoutEchoingSecrets(t *testing.T) {
-	for _, line := range []string{"SSH_KEY_RULES='secret-invalid-json'", "SSH_PORT=0", "AUTO_SCAN=nope", "PROXY_AUTH=ntlm", "TEST_URL='http://example.com'", "SCAN_CONCURRENCY=999"} {
+	for _, line := range []string{"SSH_KEY_RULES='secret-invalid-json'", "SSH_PORT=0", "AUTO_SCAN=nope", "PROXY_AUTH=ntlm", "TEST_URL='ftp://example.com'", "TEST_URL='http://user:secret@example.com'", "SCAN_CONCURRENCY=999"} {
 		path := filepath.Join(t.TempDir(), ".env")
 		_ = os.WriteFile(path, []byte(line), 0600)
 		_, err := Load(path)
@@ -64,6 +64,31 @@ func TestConfigRejectsInvalidValuesWithoutEchoingSecrets(t *testing.T) {
 			t.Errorf("accepted %s", line)
 		} else if strings.Contains(err.Error(), "secret-invalid-json") {
 			t.Fatal("error leaked value")
+		}
+	}
+}
+
+func TestProbeURLsAndLegacyMigration(t *testing.T) {
+	for _, test := range []struct{ input, want string }{
+		{"", DefaultTestURL},
+		{"TEST_URL='" + legacyTestURL + "'", DefaultTestURL},
+		{"TEST_URL='http://example.com'", "http://example.com"},
+		{"TEST_URL='https://example.com'", "https://example.com"},
+	} {
+		path := filepath.Join(t.TempDir(), ".env")
+		if err := os.WriteFile(path, []byte(test.input), 0600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.TestURL != test.want {
+			t.Fatalf("URL %q: got %q, want %q", test.input, c.TestURL, test.want)
+		}
+		unchanged, err := os.ReadFile(path)
+		if err != nil || string(unchanged) != test.input {
+			t.Fatal("loading configuration changed the user's .env")
 		}
 	}
 }

@@ -11,13 +11,16 @@ import (
 )
 
 func TestCurlConfigurationEscapesCredentials(t *testing.T) {
-	c := &config.Config{ProxyHost: "proxy.local", ProxyPort: 3128, ProxyAuth: "basic", ProxyUser: `domain\user`, ProxyPassword: `a"b\c$!&`, TestURL: "https://example.com/", ConnectTimeout: 2 * time.Second, CommandTimeout: 6 * time.Second}
+	c := &config.Config{ProxyHost: "proxy.local", ProxyPort: 3128, ProxyAuth: "basic", ProxyUser: `domain\user`, ProxyPassword: `a"b\c$!&`, TestURL: "http://example.com/", ConnectTimeout: 2 * time.Second, CommandTimeout: 6 * time.Second}
 	text := CurlConfig(c)
 	if !strings.Contains(text, `proxy-user = "domain\\user:a\"b\\c$!&"`) || !strings.Contains(text, `noproxy = ""`) {
 		t.Fatalf("incorrect escaping or proxy bypass: %s", text)
 	}
 	if strings.Contains(text, "insecure") {
 		t.Fatal("TLS verification disabled")
+	}
+	if !strings.Contains(text, "\nhead\n") || strings.Contains(text, "\nlocation\n") {
+		t.Fatal("probe must use HEAD without following redirects")
 	}
 }
 

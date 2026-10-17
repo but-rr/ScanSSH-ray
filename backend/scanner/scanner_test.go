@@ -16,7 +16,7 @@ import (
 func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	server := testssh.Start(t)
 	base := t.TempDir()
-	c := &config.Config{BaseDir: base, EnvPath: filepath.Join(base, ".env"), User: "tester", SSHPort: server.Port, KeyPath: server.KeyPath, KnownHosts: filepath.Join(base, "known_hosts"), IPs: []string{"127.0.0.1"}, Pools: []config.Pool{{Label: "loopback", IPs: []string{"127.0.0.1"}}}, ProxyHost: "127.0.0.1", ProxyPort: 3128, ProxyAuth: "basic", ProxyUser: "integration-user", ProxyPassword: "secret-proxy-123", TestURL: "https://example.com", ConnectTimeout: time.Second, CommandTimeout: time.Second, SSHInterval: time.Hour, InternetInterval: time.Hour, Concurrency: 2}
+	c := &config.Config{BaseDir: base, EnvPath: filepath.Join(base, ".env"), User: "tester", SSHPort: server.Port, KeyPath: server.KeyPath, KnownHosts: filepath.Join(base, "known_hosts"), IPs: []string{"127.0.0.1"}, Pools: []config.Pool{{Label: "loopback", IPs: []string{"127.0.0.1"}}}, ProxyHost: "127.0.0.1", ProxyPort: 3128, ProxyAuth: "basic", ProxyUser: "integration-user", ProxyPassword: "secret-proxy-123", TestURL: "http://example.com", ConnectTimeout: time.Second, CommandTimeout: time.Second, SSHInterval: time.Hour, InternetInterval: time.Hour, Concurrency: 2}
 	e, err := New(c)
 	if err != nil {
 		t.Fatal(err)
@@ -37,16 +37,9 @@ func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	}
 	scan()
 	snapshot := e.Snapshot()
-	if snapshot.Hosts[0].Status != "host_key_unknown" || len(snapshot.Pending) != 1 {
-		t.Fatalf("unknown host: %+v pending=%v", snapshot.Hosts, snapshot.Pending)
+	if snapshot.Hosts[0].Status != "online" || len(snapshot.Pending) != 0 {
+		t.Fatalf("first scan should accept the server automatically: %+v pending=%v", snapshot.Hosts, snapshot.Pending)
 	}
-	if err = e.SSH.Trust("127.0.0.1", "SHA256:wrong"); err == nil {
-		t.Fatal("trusted wrong fingerprint")
-	}
-	if err = e.SSH.Trust("127.0.0.1", snapshot.Pending[0].Fingerprint); err != nil {
-		t.Fatal(err)
-	}
-	scan()
 	if h := e.Snapshot().Hosts[0]; h.Status != "online" || !h.SSH || !h.Internet || h.HTTPCode != 204 {
 		t.Fatalf("online: %+v", h)
 	}
@@ -61,6 +54,11 @@ func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(string(input), c.ProxyPassword) {
 		t.Fatal("proxy configuration was not sent via SSH stdin")
 	}
+	server.ReplyCode.Store(301)
+	scan()
+	if h := e.Snapshot().Hosts[0]; h.Status != "online" || !h.Internet || h.HTTPCode != 301 {
+		t.Fatalf("HTTP redirect should confirm reachability without HTTPS: %+v", h)
+	}
 	server.ReplyCode.Store(407)
 	scan()
 	if h := e.Snapshot().Hosts[0]; h.Status != "limited" || h.Internet || h.HTTPCode != 407 {
@@ -68,6 +66,11 @@ func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	}
 	if e.CanTunnel("127.0.0.1") {
 		t.Fatal("failed internet check allowed tunnel")
+	}
+	server.ReplyCode.Store(403)
+	scan()
+	if h := e.Snapshot().Hosts[0]; h.Status != "limited" || h.Internet || h.HTTPCode != 403 {
+		t.Fatalf("HTTP 403 must not confirm Internet access: %+v", h)
 	}
 	if server.Connections.Load() != 1 {
 		t.Fatalf("connection cache not reused: %d", server.Connections.Load())

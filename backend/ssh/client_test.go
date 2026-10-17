@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,11 +51,43 @@ func TestChangedKeyAndRejectedIdentity(t *testing.T) {
 			if len(p) != 1 || !p[0].Changed {
 				t.Fatal("missing changed key warning")
 			}
-			if m.Trust(p[0].IP, p[0].Fingerprint) == nil {
-				t.Fatal("allowed changed key replacement")
+			data, err := os.ReadFile(c.KnownHosts)
+			if err != nil || !strings.Contains(string(data), strings.TrimSpace(knownhosts.Line([]string{knownhosts.Normalize(c.Address("127.0.0.1"))}, key))) {
+				t.Fatal("changed key overwrote the trusted host")
 			}
 		}
 		m.Close()
+	}
+}
+
+func TestAutomaticallyAcceptsAndPersistsNewHost(t *testing.T) {
+	server := testssh.Start(t)
+	c := &config.Config{User: "tester", KeyPath: server.KeyPath, SSHPort: server.Port, KnownHosts: filepath.Join(t.TempDir(), "known_hosts"), ConnectTimeout: time.Second}
+	var saved []byte
+	for attempt := 0; attempt < 2; attempt++ {
+		m, err := New(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		client, err := m.Connect(context.Background(), "127.0.0.1", true)
+		if err != nil {
+			m.Close()
+			t.Fatal(err)
+		}
+		if client == nil || len(m.Pending()) != 0 {
+			m.Close()
+			t.Fatal("new host required manual confirmation")
+		}
+		m.Close()
+		data, err := os.ReadFile(c.KnownHosts)
+		if err != nil || !strings.Contains(string(data), knownhosts.Normalize(c.Address("127.0.0.1"))) {
+			t.Fatal("new host key was not saved with its nonstandard port")
+		}
+		if attempt == 0 {
+			saved = data
+		} else if string(saved) != string(data) {
+			t.Fatal("restart duplicated the existing host key")
+		}
 	}
 }
 

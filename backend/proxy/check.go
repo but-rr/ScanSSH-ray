@@ -36,7 +36,7 @@ func EncodedPowerShell(script string) string {
 }
 
 func CurlConfig(c *config.Config) string {
-	text := "silent\nshow-error\nproxy = " + quote(fmt.Sprintf("http://%s:%d", c.ProxyHost, c.ProxyPort)) + "\nnoproxy = \"\"\nconnect-timeout = " + strconv.Itoa(int(c.ConnectTimeout.Seconds())) + "\nmax-time = " + strconv.Itoa(int(c.CommandTimeout.Seconds())) + "\noutput = \"NUL\"\nwrite-out = \"SCANSSH:%{http_code}\"\nurl = " + quote(c.TestURL) + "\n"
+	text := "silent\nshow-error\nhead\nproxy = " + quote(fmt.Sprintf("http://%s:%d", c.ProxyHost, c.ProxyPort)) + "\nnoproxy = \"\"\nconnect-timeout = " + strconv.Itoa(int(c.ConnectTimeout.Seconds())) + "\nmax-time = " + strconv.Itoa(int(c.CommandTimeout.Seconds())) + "\noutput = \"NUL\"\nwrite-out = \"SCANSSH:%{http_code}\"\nurl = " + quote(c.TestURL) + "\n"
 	if c.ProxyAuth == "basic" {
 		text += "proxy-basic\nproxy-user = " + quote(c.ProxyUser+":"+c.ProxyPassword) + "\n"
 	}
@@ -59,14 +59,19 @@ func Check(ctx context.Context, client *ssh.Client, c *config.Config) Result {
 	if len(match) == 2 {
 		code, _ = strconv.Atoi(match[1])
 	}
-	if err == nil && code >= 200 && code < 300 {
-		return Result{OK: true, HTTPCode: code, Message: "HTTPS через прокси подтверждён"}
+	// HTTP probes commonly return a redirect to HTTPS. Do not follow it: the
+	// requested check is HTTP reachability, independent of TLS certificates.
+	if err == nil && code >= 200 && code < 400 {
+		return Result{OK: true, HTTPCode: code, Message: fmt.Sprintf("Доступ через прокси подтверждён: HTTP %d", code)}
 	}
 	if ctx.Err() != nil {
 		return Result{Message: "Истёк таймаут удалённой проверки"}
 	}
 	if code == 407 {
 		return Result{HTTPCode: code, Message: "Прокси отклонил авторизацию (407)"}
+	}
+	if code == 403 {
+		return Result{HTTPCode: code, Message: "HTTP 403: доступ к тестовому сайту запрещён"}
 	}
 	if code != 0 {
 		return Result{HTTPCode: code, Message: fmt.Sprintf("Проверка через прокси: HTTP %d", code)}
