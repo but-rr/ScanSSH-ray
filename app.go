@@ -103,19 +103,6 @@ func (a *App) SetAuto(enabled bool) {
 	}
 }
 
-func (a *App) TrustHost(ip, fingerprint string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.engine == nil {
-		return fmt.Errorf("конфигурация не загружена")
-	}
-	if err := a.engine.SSH.Trust(ip, fingerprint); err != nil {
-		return err
-	}
-	a.engine.AddEvent(ip+": подтверждён ключ SSH-сервера", "ok")
-	return nil
-}
-
 func (a *App) StartTunnel(ip string, port int) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
