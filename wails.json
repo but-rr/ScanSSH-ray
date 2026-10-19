@@ -7,5 +7,5 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": { "name": "ScanSSH-ray" },
-  "info": { "companyName": "ScanSSH-ray", "productName": "ScanSSH-ray", "productVersion": "0.1.1", "copyright": "ScanSSH-ray", "comments": "SSH fleet monitoring for Windows 10" }
+  "info": { "companyName": "ScanSSH-ray", "productName": "ScanSSH-ray", "productVersion": "0.1.2", "copyright": "ScanSSH-ray", "comments": "SSH fleet monitoring for Windows 10" }
 }

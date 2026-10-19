@@ -4,12 +4,13 @@
   import { backend } from '../api';
   import type { View, Host } from '../types';
   import { version } from '../package.json';
+  import { defaultFilter, fleetFilters, filterHosts, isError, resolveSelection, type FleetFilter } from '../fleet';
 
   let view: View | null = null;
   let connectionError = '';
   let selectedIP = '';
   let query = '';
-  let filter = 'all';
+  let filter: FleetFilter = defaultFilter;
   let page = 0;
   const perPage = 10;
   let modal = '';
@@ -28,7 +29,6 @@
   };
   const time = (value: string | null | undefined) => value ? new Date(value).toLocaleTimeString('ru-RU') : '—';
   const kind = (h: Host) => h.status === 'online' ? 'ok' : h.status === 'unknown' ? 'offline' : 'warn';
-  const isError = (h: Host) => !['online', 'limited', 'unknown'].includes(h.status);
   $: monitor = view?.monitor;
   $: hosts = monitor?.hosts || [];
   $: selected = hosts.find(h => h.ip === selectedIP);
@@ -37,7 +37,8 @@
   $: limited = hosts.filter(h => h.status === 'limited').length;
   $: errors = hosts.filter(isError).length;
   $: unknown = hosts.filter(h => h.status === 'unknown').length;
-  $: found = hosts.filter(h => (filter === 'all' || (filter === 'errors' ? isError(h) : h.status === filter)) && h.ip.includes(query.trim()));
+  $: found = filterHosts(hosts, filter, query);
+  $: selectedIP = resolveSelection(found, selectedIP);
   $: maxPage = Math.max(0, Math.ceil(found.length / perPage) - 1);
   $: if (page > maxPage) page = maxPage;
   $: visible = found.slice(page * perPage, (page + 1) * perPage);
@@ -49,7 +50,6 @@
     try {
       view = await backend().GetState();
       connectionError = '';
-      if (view.monitor && !view.monitor.hosts.some(h => h.ip === selectedIP)) selectedIP = view.monitor.hosts[0]?.ip || '';
       if (view.monitor && configPort !== view.monitor.config.localPort) { configPort = view.monitor.config.localPort; port = configPort; }
     } catch (error) { connectionError = String(error); }
   }
@@ -141,13 +141,13 @@
         </section>
 
         <section class="card fleet-card"><div class="card-header"><div class="fleet-title"><h2 class="card-title">Все устройства</h2><span class="count-pill">{found.length}</span></div><div class="tiny" class:scanning={monitor?.scanning}>{monitor?.scanning ? '● Проверяем устройства…' : monitor?.lastScan ? `Проверка в ${time(monitor.lastScan)}` : 'Ожидание первой проверки'}</div></div>
-          <div class="toolbar"><div class="search-wrap"><span class="search-icon"><Icon name="search" size={16}/></span><input class="search" type="search" aria-label="Поиск по IP" placeholder="Поиск по IP-адресу" bind:value={query} oninput={() => page = 0}/></div><div class="filters">{#each [{id:'all',name:'Все'},{id:'online',name:'С интернетом'},{id:'limited',name:'Без интернета'},{id:'errors',name:'Ошибки'},{id:'unknown',name:'Не проверены'}] as item}<button class="filter" class:active={filter === item.id} onclick={() => {filter = item.id; page = 0;}}>{item.name}</button>{/each}</div></div>
-          <div class="table-wrap"><table aria-label="Устройства"><thead><tr><th>Устройство / IP</th><th>SSH</th><th>Интернет</th><th>Проверка</th><th><span class="sr-only">Подробнее</span></th></tr></thead><tbody>
+          <div class="toolbar"><div class="search-wrap"><span class="search-icon"><Icon name="search" size={16}/></span><input class="search" type="search" aria-label="Поиск по IP" placeholder="Поиск по IP-адресу" bind:value={query} oninput={() => page = 0}/></div><div class="filters">{#each fleetFilters as item}<button class="filter" class:active={filter === item.id} aria-pressed={filter === item.id} onclick={() => {filter = item.id; page = 0;}}>{item.name}</button>{/each}</div></div>
+          <div class="table-wrap"><table aria-label="Устройства"><thead><tr><th>Устройство / IP</th><th>SSH</th><th>Интернет</th><th title="Сначала ПК с интернетом, затем по возрастанию задержки SSH">Отклик SSH ↑</th><th>Проверка</th><th><span class="sr-only">Подробнее</span></th></tr></thead><tbody>
             {#each visible as host (host.ip)}<tr class:selected={selectedIP === host.ip}>
               <td><button class="host-button" onclick={() => selectedIP = host.ip}><span class="device-name mono">{host.ip}</span><span class="device-ip">{host.user} · SSH :{cfg?.sshPort}</span></button></td>
               <td><span class="state" title={host.message}><span class={`dot ${kind(host)}`}></span>{host.ssh ? 'Доступен' : host.status === 'unknown' ? '—' : host.status === 'auth_error' ? 'Авторизация' : host.status.startsWith('host_key') ? 'Ключ сервера' : host.status === 'config_error' ? 'Настройки' : 'Недоступен'}</span></td>
-              <td><span class="tag" class:warn={host.ssh && !host.internet} class:off={!host.ssh}>{host.internet ? 'Есть' : host.ssh ? 'Не подтверждён' : '—'}</span></td><td><span class="time mono">{time(host.checkedAt)}</span></td><td><button class="icon-button" aria-label={`Выбрать ${host.ip}`} onclick={() => selectedIP = host.ip}><Icon name="arrow" size={15}/></button></td>
-            </tr>{:else}<tr><td colspan="5"><div class="empty">{monitor ? 'Устройства не найдены. Измените поиск или фильтр.' : 'Ожидание загрузки конфигурации…'}</div></td></tr>{/each}
+              <td><span class="tag" class:warn={host.ssh && !host.internet} class:off={!host.ssh}>{host.internet ? 'Есть' : host.ssh ? 'Не подтверждён' : '—'}</span></td><td><span class="time mono">{host.ssh && host.checkedAt ? `${host.latencyMs} мс` : '—'}</span></td><td><span class="time mono">{time(host.checkedAt)}</span></td><td><button class="icon-button" aria-label={`Выбрать ${host.ip}`} onclick={() => selectedIP = host.ip}><Icon name="arrow" size={15}/></button></td>
+            </tr>{:else}<tr><td colspan="6"><div class="empty">{!monitor ? 'Ожидание загрузки конфигурации…' : query.trim() ? 'Устройства не найдены. Измените поиск или фильтр.' : filter === 'turbo' ? monitor.scanning ? 'Проверяем устройства. ПК с интернетом появятся здесь автоматически.' : 'Пока нет ПК с подтверждённым интернетом. Все устройства доступны в фильтре «Все».' : 'Устройства не найдены. Измените поиск или фильтр.'}</div></td></tr>{/each}
           </tbody></table></div>
           <div class="table-footer"><span class="tiny">{found.length ? `${page * perPage + 1}–${Math.min((page + 1) * perPage, found.length)} из ${found.length}` : '0 устройств'}</span><div class="pagination"><button class="page-btn" disabled={page === 0} aria-label="Предыдущая страница" onclick={() => page--}><Icon name="left" size={15}/></button><button class="page-btn" disabled={page >= maxPage} aria-label="Следующая страница" onclick={() => page++}><Icon name="arrow" size={15}/></button></div></div>
         </section>
