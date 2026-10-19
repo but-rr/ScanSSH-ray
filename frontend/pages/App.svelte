@@ -20,7 +20,6 @@
   let message = '';
   let messageError = false;
   let toastTimer: ReturnType<typeof setTimeout>;
-  let journal: HTMLElement;
   const labels: Record<string, string> = {
     unknown: 'Не проверен', online: 'SSH и интернет доступны', limited: 'Проверка через прокси не прошла',
     ssh_closed: 'Порт SSH недоступен', unreachable: 'ПК недоступен / таймаут', auth_error: 'Ошибка авторизации SSH',
@@ -70,6 +69,8 @@
   }
   function focusModal(node: HTMLElement) {
     const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const controls = () => Array.from(node.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]'));
     queueMicrotask(() => controls()[0]?.focus());
     const trap = (event: KeyboardEvent) => {
@@ -79,7 +80,7 @@
       else if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0]?.focus(); }
     };
     node.addEventListener('keydown', trap);
-    return { destroy() { node.removeEventListener('keydown', trap); previous?.focus(); } };
+    return { destroy() { node.removeEventListener('keydown', trap); document.body.style.overflow = previousOverflow; previous?.focus({ preventScroll: true }); } };
   }
   onMount(() => {
     let stopped = false;
@@ -96,9 +97,9 @@
   <aside class="sidebar">
     <div class="brand"><div class="brand-icon"><Icon name="terminal" size={23}/></div><div><div class="brand-name">ScanSSH-ray</div><div class="brand-sub">SSH FLEET MONITOR</div></div></div>
     <div class="side-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
-    <button class="nav-item active" onclick={() => { modal = ''; window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Icon/>Мониторинг<span class="nav-count">{hosts.length}</span></button>
+    <button class="nav-item" class:active={!modal} onclick={() => { modal = ''; window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Icon/>Мониторинг<span class="nav-count">{hosts.length}</span></button>
     <button class="nav-item" onclick={() => modal = 'settings'}><Icon name="server"/>Пулы IP-адресов<span class="nav-count">{monitor?.pools.length || 0}</span></button>
-    <button class="nav-item" onclick={() => journal?.scrollIntoView({ behavior: 'smooth' })}><Icon name="clock"/>Журнал событий</button>
+    <button class="nav-item" class:active={modal === 'journal'} aria-haspopup="dialog" onclick={() => modal = 'journal'}><Icon name="clock"/>Журнал событий</button>
     <button class="nav-item" onclick={() => modal = 'settings'}><Icon name="settings"/>Настройки</button>
     <div class="side-spacer"></div>
     <div class="agent-card"><div class="agent-top"><span class:ready={!!monitor} class="agent-dot"></span>{monitor ? 'Локальный движок Go' : 'Загрузка конфигурации'}</div><p>{monitor?.scanning ? 'Выполняются сетевые проверки' : monitor?.auto ? `SSH: ${cfg?.sshInterval} с · Интернет: ${cfg?.internetInterval} с` : 'Автопроверка выключена'}</p></div>
@@ -152,7 +153,6 @@
           <div class="table-footer"><span class="tiny">{found.length ? `${page * perPage + 1}–${Math.min((page + 1) * perPage, found.length)} из ${found.length}` : '0 устройств'}</span><div class="pagination"><button class="page-btn" disabled={page === 0} aria-label="Предыдущая страница" onclick={() => page--}><Icon name="left" size={15}/></button><button class="page-btn" disabled={page >= maxPage} aria-label="Следующая страница" onclick={() => page++}><Icon name="arrow" size={15}/></button></div></div>
         </section>
 
-        <section class="card activity-card" bind:this={journal}><div class="card-header"><div><h2 class="card-title">Журнал событий</h2><div class="tiny">Изменения статусов и действия · data/events.log</div></div><button class="btn mini ghost" disabled={!monitor || busy} onclick={() => run(async () => { const path = await backend().ExportReport(); if (path) notify('Отчёт сохранён'); })}><Icon name="download" size={15}/>Отчёт</button></div><div class="activity-list">{#each monitor?.events.slice(0, 12) || [] as event}<div class="activity-item"><div class={`act-icon ${event.kind}`}><Icon name={event.kind === 'ok' ? 'check' : event.kind === 'warn' ? 'alert' : 'clock'} size={13}/></div><div class="act-main">{event.message}</div><div class="act-time mono">{time(event.at)}</div></div>{:else}<div class="empty">Событий пока нет</div>{/each}</div></section>
       </div>
 
       <div class="right-area"><aside class="card detail-card">
@@ -182,8 +182,12 @@
 </div>
 
 {#if modal}
-  <div class="overlay show"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1" use:focusModal><div class="modal-top"><div><div class="modal-title" id="modal-title">{modal === 'settings' ? 'Настройки подключения' : 'Как работает ScanSSH-ray'}</div><p class="modal-desc">{modal === 'settings' ? 'Конфигурация загружается из локального .env' : 'Реальные проверки с вашего компьютера'}</p></div><button class="close" aria-label="Закрыть" onclick={() => modal = ''}><Icon name="x"/></button></div><div class="modal-body">
-    {#if modal === 'settings'}
+  <div class="overlay show" class:journal-overlay={modal === 'journal'}><div class="modal" class:journal-modal={modal === 'journal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1" use:focusModal><div class="modal-top"><div><div class="modal-title" id="modal-title">{modal === 'journal' ? 'Журнал событий' : modal === 'settings' ? 'Настройки подключения' : 'Как работает ScanSSH-ray'}</div><p class="modal-desc">{modal === 'journal' ? 'Изменения статусов и действия · обновляются автоматически' : modal === 'settings' ? 'Конфигурация загружается из локального .env' : 'Реальные проверки с вашего компьютера'}</p></div><button class="close" aria-label="Закрыть" onclick={() => modal = ''}><Icon name="x"/></button></div><div class="modal-body">
+    {#if modal === 'journal'}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable history needs keyboard focus for PageUp and PageDown.) -->
+      <div class="activity-list" tabindex="0" role="region" aria-label="События мониторинга">{#each monitor?.events || [] as event}<div class="activity-item"><div class={`act-icon ${event.kind}`}><Icon name={event.kind === 'ok' ? 'check' : event.kind === 'warn' ? 'alert' : 'clock'} size={13}/></div><div class="act-main">{event.message}</div><div class="act-time mono" title={new Date(event.at).toLocaleString('ru-RU')}>{time(event.at)}</div></div>{:else}<div class="empty">{monitor ? 'Событий пока нет' : 'Ожидание загрузки журнала…'}</div>{/each}</div>
+      <div class="journal-footer"><span class="tiny">Последних событий: {monitor?.events.length || 0}</span><button class="btn mini ghost" disabled={!monitor || busy} onclick={() => run(async () => { const path = await backend().ExportReport(); if (path) notify('Отчёт сохранён'); })}><Icon name="download" size={15}/>Отчёт</button></div>
+    {:else if modal === 'settings'}
       <div class="config-path mono">{view?.envPath || 'Загрузка пути .env…'}</div>
       <div class="settings-grid"><div><span>SSH-пользователь</span><strong>{cfg?.user || '—'} · порт {cfg?.sshPort || 22}</strong></div><div><span>HTTP-прокси</span><strong>{cfg ? `${cfg.proxyHost}:${cfg.proxyPort}` : '—'}</strong></div><div><span>SSH-ключ по умолчанию</span><strong class="mono wrap">{cfg?.keyPath || 'Не задан'}</strong></div><div><span>Правила SSH-ключей</span><strong>{cfg?.keyRules || 0}</strong></div><div><span>Авторизация прокси</span><strong>{cfg?.proxyAuth === 'none' ? 'Без авторизации' : cfg?.proxyCredentialsSet ? 'Basic · профиль заполнен' : 'Basic · заполните .env'}</strong></div><div><span>Интервалы проверок</span><strong>SSH {cfg?.sshInterval || '—'} с / Интернет {cfg?.internetInterval || '—'} с</strong></div></div>
       <div class="section-label">ПУЛЫ АДРЕСОВ · SCAN_RANGES</div><pre class="sample-code">{cfg?.ranges.split(',').join('\n') || 'Не загружены'}</pre>
