@@ -31,6 +31,7 @@
   $: monitor = view?.monitor;
   $: hosts = monitor?.hosts || [];
   $: selected = hosts.find(h => h.ip === selectedIP);
+  $: checkingSelected = !!selected && !!monitor?.scanning && (!monitor.scanIP || monitor.scanIP === selectedIP);
   $: pending = monitor?.pending.find(p => p.ip === selectedIP);
   $: online = hosts.filter(h => h.status === 'online').length;
   $: limited = hosts.filter(h => h.status === 'limited').length;
@@ -141,7 +142,7 @@
           {/each}</div>
         </section>
 
-        <section class="card fleet-card"><div class="card-header"><div class="fleet-title"><h2 class="card-title">Все устройства</h2><span class="count-pill">{found.length}</span></div><div class="tiny" class:scanning={monitor?.scanning}>{monitor?.scanning ? '● Проверяем устройства…' : monitor?.lastScan ? `Проверка в ${time(monitor.lastScan)}` : 'Ожидание первой проверки'}</div></div>
+        <section class="card fleet-card"><div class="card-header"><div class="fleet-title"><h2 class="card-title">Все устройства</h2><span class="count-pill">{found.length}</span></div><div class="tiny" class:scanning={monitor?.scanning}>{monitor?.scanning ? monitor.scanIP ? `● Проверяем ${monitor.scanIP}…` : '● Проверяем устройства…' : monitor?.lastScan ? `Проверка в ${time(monitor.lastScan)}` : 'Ожидание первой проверки'}</div></div>
           <div class="toolbar"><div class="search-wrap"><span class="search-icon"><Icon name="search" size={16}/></span><input class="search" type="search" aria-label="Поиск по IP" placeholder="Поиск по IP-адресу" bind:value={query} oninput={() => page = 0}/></div><div class="filters">{#each fleetFilters as item}<button class="filter" class:active={filter === item.id} aria-pressed={filter === item.id} onclick={() => {filter = item.id; page = 0;}}>{item.name}</button>{/each}</div></div>
           <div class="table-wrap"><table aria-label="Устройства"><thead><tr><th>Устройство / IP</th><th>SSH</th><th>Интернет</th><th title="Сначала ПК с интернетом, затем по возрастанию задержки SSH">Отклик SSH ↑</th><th>Проверка</th><th><span class="sr-only">Подробнее</span></th></tr></thead><tbody>
             {#each visible as host (host.ip)}<tr class:selected={selectedIP === host.ip}>
@@ -163,6 +164,7 @@
           <div class="check-line"><span class="check-name"><Icon name="clock" size={15}/>Задержка SSH</span><span class="check-answer">{selected?.checkedAt ? `${selected.latencyMs} мс` : '—'}</span></div>
           <div class="check-line"><span class="check-name"><Icon name="shield" size={15}/>Файл ключа</span><span class="check-answer key-name" title={selected?.keyPath}>{selected?.keyPath ? selected.keyPath.split(/[\\/]/).pop() : 'Не задан'}</span></div>
           <div class="tiny detail-times">SSH: {time(selected?.checkedAt)}<br/>Интернет: {time(selected?.internetCheckedAt)}</div>
+          <button class="btn full check-host" disabled={!selected || busy || !!monitor?.scanning} aria-busy={checkingSelected} title={monitor?.scanning ? 'Дождитесь завершения текущей проверки или остановите её' : 'Перепроверить SSH и интернет только у выбранного ПК'} onclick={() => { if (selected) { const ip = selected.ip; void run(() => backend().ScanHost(ip)); } }}><Icon name="refresh" size={15}/>{checkingSelected ? 'Проверяем ПК…' : 'Проверить ПК'}</button>
           {#if pending}<div class="trust-box"><strong>Ключ сервера изменился</strong><p>Сверьте SHA256 с ключом на удалённом ПК по доверенному каналу.</p><code>{pending.algorithm}<br/>{pending.fingerprint}</code><p>Исправьте known_hosts после проверки причины изменения.</p></div>{/if}
         </div>
         <div class="tunnel-section"><div class="tunnel-heading"><span class="tunnel-title">SSH-туннель</span><span class="tunnel-port">LOCAL FORWARD</span></div>
