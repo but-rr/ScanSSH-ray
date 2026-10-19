@@ -52,3 +52,4 @@ html{scroll-behavior:smooth}button svg{flex-shrink:0}.nav-item{gap:12px}.agent-d
 .journal-modal .act-main{font-size:12px;line-height:1.6;overflow-wrap:anywhere;user-select:text}
 .journal-modal .act-time{padding-top:3px;color:#99aec2}
 .journal-footer{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 24px;border-top:1px solid #69849c33}
+.check-host{margin-top:14px;font-size:12px}

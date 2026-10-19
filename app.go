@@ -95,6 +95,16 @@ func (a *App) CancelScan() {
 		a.engine.Cancel()
 	}
 }
+
+func (a *App) ScanHost(ip string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.engine == nil {
+		return fmt.Errorf("сначала исправьте .env")
+	}
+	return a.engine.ScanHost(ip)
+}
+
 func (a *App) SetAuto(enabled bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

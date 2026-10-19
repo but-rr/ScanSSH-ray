@@ -41,6 +41,7 @@ type Snapshot struct {
 	Events   []Event             `json:"events"`
 	Pending  []sshclient.Pending `json:"pending"`
 	Scanning bool                `json:"scanning"`
+	ScanIP   string              `json:"scanIP"`
 	Auto     bool                `json:"auto"`
 	LastScan *time.Time          `json:"lastScan"`
 }
@@ -52,6 +53,7 @@ type Engine struct {
 	hosts                  []Host
 	events                 []Event
 	scanning, auto, closed bool
+	scanIP                 string
 	lastScan               *time.Time
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -115,7 +117,7 @@ func (e *Engine) loop() {
 func (e *Engine) Snapshot() Snapshot {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return Snapshot{e.Config.Summary(), e.Config.Pools, append([]Host{}, e.hosts...), append([]Event{}, e.events...), e.SSH.Pending(), e.scanning, e.auto, e.lastScan}
+	return Snapshot{e.Config.Summary(), e.Config.Pools, append([]Host{}, e.hosts...), append([]Event{}, e.events...), e.SSH.Pending(), e.scanning, e.scanIP, e.auto, e.lastScan}
 }
 
 func (e *Engine) AddEvent(message, kind string) {
@@ -138,24 +140,52 @@ func (e *Engine) addEventLocked(message, kind string) {
 func (e *Engine) SetAuto(enabled bool) { e.mu.Lock(); e.auto = enabled; e.mu.Unlock() }
 
 func (e *Engine) Scan(forceInternet bool) bool {
+	return e.startScan(forceInternet, "") == nil
+}
+
+// ScanHost always checks Internet again, regardless of the cached result's age.
+func (e *Engine) ScanHost(ip string) error {
+	if ip == "" {
+		return fmt.Errorf("выберите ПК для проверки")
+	}
+	return e.startScan(true, ip)
+}
+
+func (e *Engine) startScan(forceInternet bool, ip string) error {
 	e.mu.Lock()
-	if e.closed || e.scanning {
-		e.mu.Unlock()
-		return false
+	defer e.mu.Unlock()
+	if e.closed {
+		return fmt.Errorf("приложение закрывается")
+	}
+	if e.scanning {
+		return fmt.Errorf("дождитесь завершения текущей проверки или остановите её")
+	}
+	indexes := make([]int, 0, len(e.hosts))
+	for i, host := range e.hosts {
+		if ip == "" || host.IP == ip {
+			indexes = append(indexes, i)
+		}
+	}
+	if ip != "" && len(indexes) == 0 {
+		return fmt.Errorf("ПК отсутствует в настроенных пулах")
 	}
 	e.scanning = true
+	e.scanIP = ip
 	ctx, cancel := context.WithCancel(e.ctx)
 	e.scanCancel = cancel
-	e.addEventLocked("Начата проверка устройств", "info")
+	if ip == "" {
+		e.addEventLocked("Начата проверка устройств", "info")
+	} else {
+		e.addEventLocked(ip+": начата проверка SSH и интернета", "info")
+	}
 	e.wg.Add(1)
-	e.mu.Unlock()
 	go func() {
 		defer e.wg.Done()
 		defer cancel()
 		sem := make(chan struct{}, e.Config.Concurrency)
 		var jobs sync.WaitGroup
 	outer:
-		for i := range e.Config.IPs {
+		for _, i := range indexes {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -167,17 +197,32 @@ func (e *Engine) Scan(forceInternet bool) bool {
 		jobs.Wait()
 		e.mu.Lock()
 		e.scanning = false
+		e.scanIP = ""
 		e.scanCancel = nil
-		now := time.Now()
-		e.lastScan = &now
+		// A single-PC check must not delay the next scheduled check of all PCs.
+		if ip == "" {
+			now := time.Now()
+			e.lastScan = &now
+		}
+		scope := "Проверка"
+		if ip != "" {
+			scope = ip + ": проверка"
+		}
 		if ctx.Err() != nil {
-			e.addEventLocked("Проверка остановлена", "info")
+			e.addEventLocked(scope+" остановлена", "info")
+		} else if ip != "" {
+			host := e.hosts[indexes[0]]
+			kind := "warn"
+			if host.Status == "online" {
+				kind = "ok"
+			}
+			e.addEventLocked(scope+" завершена. "+host.Message, kind)
 		} else {
-			e.addEventLocked("Проверка завершена", "ok")
+			e.addEventLocked(scope+" завершена", "ok")
 		}
 		e.mu.Unlock()
 	}()
-	return true
+	return nil
 }
 
 func (e *Engine) Cancel() {
