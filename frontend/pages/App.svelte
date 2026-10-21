@@ -68,6 +68,11 @@
     try { await navigator.clipboard.writeText(command); notify('Команда скопирована'); }
     catch { notify('Выделите и скопируйте команду вручную', true); }
   }
+  async function copyIP(ip: string) {
+    selectedIP = ip;
+    try { await navigator.clipboard.writeText(ip); notify(`IP ${ip} скопирован`); }
+    catch { notify(`Не удалось скопировать IP ${ip} в буфер обмена`, true); }
+  }
   function focusModal(node: HTMLElement) {
     const previous = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
@@ -146,7 +151,7 @@
           <div class="toolbar"><div class="search-wrap"><span class="search-icon"><Icon name="search" size={16}/></span><input class="search" type="search" aria-label="Поиск по IP" placeholder="Поиск по IP-адресу" bind:value={query} oninput={() => page = 0}/></div><div class="filters">{#each fleetFilters as item}<button class="filter" class:active={filter === item.id} aria-pressed={filter === item.id} onclick={() => {filter = item.id; page = 0;}}>{item.name}</button>{/each}</div></div>
           <div class="table-wrap"><table aria-label="Устройства"><thead><tr><th>Устройство / IP</th><th>SSH</th><th>Интернет</th><th title="Сначала ПК с интернетом, затем по возрастанию задержки SSH">Отклик SSH ↑</th><th>Проверка</th><th><span class="sr-only">Подробнее</span></th></tr></thead><tbody>
             {#each visible as host (host.ip)}<tr class:selected={selectedIP === host.ip}>
-              <td><button class="host-button" onclick={() => selectedIP = host.ip}><span class="device-name mono">{host.ip}</span><span class="device-ip">{host.user} · SSH :{cfg?.sshPort}</span></button></td>
+              <td><button class="host-button" title="Скопировать IP и выбрать ПК" aria-label={`Скопировать IP ${host.ip} и выбрать ПК`} onclick={() => copyIP(host.ip)}><span class="device-name mono">{host.ip}</span><span class="device-ip">{host.user} · SSH :{cfg?.sshPort}</span></button></td>
               <td><span class="state" title={host.message}><span class={`dot ${kind(host)}`}></span>{host.ssh ? 'Доступен' : host.status === 'unknown' ? '—' : host.status === 'auth_error' ? 'Авторизация' : host.status.startsWith('host_key') ? 'Ключ сервера' : host.status === 'config_error' ? 'Настройки' : 'Недоступен'}</span></td>
               <td><span class="tag" class:warn={host.ssh && !host.internet} class:off={!host.ssh}>{host.internet ? 'Есть' : host.ssh ? 'Не подтверждён' : '—'}</span></td><td><span class="time mono">{host.ssh && host.checkedAt ? `${host.latencyMs} мс` : '—'}</span></td><td><span class="time mono">{time(host.checkedAt)}</span></td><td><button class="icon-button" aria-label={`Выбрать ${host.ip}`} onclick={() => selectedIP = host.ip}><Icon name="arrow" size={15}/></button></td>
             </tr>{:else}<tr><td colspan="6"><div class="empty">{!monitor ? 'Ожидание загрузки конфигурации…' : query.trim() ? 'Устройства не найдены. Измените поиск или фильтр.' : filter === 'turbo' ? monitor.scanning ? 'Проверяем устройства. ПК с интернетом появятся здесь автоматически.' : 'Пока нет ПК с подтверждённым интернетом. Все устройства доступны в фильтре «Все».' : 'Устройства не найдены. Измените поиск или фильтр.'}</div></td></tr>{/each}
@@ -157,7 +162,7 @@
       </div>
 
       <div class="right-area"><aside class="card detail-card">
-        <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={16}/></div><div class="detail-host mono">{selected?.ip || '—'}</div><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите устройство в таблице'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span>{selected ? labels[selected.status] || selected.status : 'Нет данных'}</span></div>{#if selected}<p class="detail-message">{selected.message}</p>{/if}</div>
+        <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={16}/></div><button class="detail-host mono host-button copy-ip" disabled={!selected} title="Скопировать IP" aria-label={selected ? `Скопировать IP ${selected.ip}` : 'Устройство не выбрано'} onclick={() => selected && copyIP(selected.ip)}>{selected?.ip || '—'}</button><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите устройство в таблице'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span>{selected ? labels[selected.status] || selected.status : 'Нет данных'}</span></div>{#if selected}<p class="detail-message">{selected.message}</p>{/if}</div>
         <div class="detail-section"><div class="section-label">Состояние соединения</div>
           <div class="check-line"><span class="check-name"><Icon name="terminal" size={15}/>Авторизация SSH</span><span class="check-answer" class:ok={selected?.ssh}>{selected?.ssh ? 'Успешно' : selected?.checkedAt ? 'Не подтверждена' : 'Не проверена'}</span></div>
           <div class="check-line"><span class="check-name"><Icon name="globe" size={15}/>{cfg?.testUrl.startsWith('https:') ? 'HTTPS' : 'HTTP'} через прокси</span><span class="check-answer" class:ok={selected?.internet}>{selected?.internet ? `HTTP ${selected.httpCode}` : selected?.internetCheckedAt ? 'Ошибка' : 'Не проверен'}</span></div>
