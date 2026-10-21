@@ -2,9 +2,10 @@
 
 **Рабочая версия v0.1.4 для Windows 10**
 
+### ⬇️ [Скачать ScanSSH-ray для Windows](https://github.com/but-rr/ScanSSH-ray/releases/latest)
+
 ## Стек проекта
 
-- **Go** — логика и мониторинг.
 - **Svelte + TypeScript** — интерфейс.
 - **Wails v2** — desktop-приложение.
 - **Go SSH + OpenSSH** — SSH-подключения.
