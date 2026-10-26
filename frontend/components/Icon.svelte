@@ -2,6 +2,12 @@
   export let name = 'monitor';
   export let size = 18;
   const paths: Record<string, string> = {
+    scan: 'M8 3H4a1 1 0 0 0-1 1v4 M16 3h4a1 1 0 0 1 1 1v4 M21 16v4a1 1 0 0 1-1 1h-4 M8 21H4a1 1 0 0 1-1-1v-4 M7 12h3l2-5 2 10 2-5h2',
+    power: 'M12 3v9 M6.3 5.8a9 9 0 1 0 11.4 0',
+    bolt: 'm13 2-9 12h7l-1 8 10-13h-8z',
+    logs: 'M8 4h12v16H4V8 M8 3v5H3 M8 12h8 M8 16h6',
+    down: 'm6 9 6 6 6-6',
+    'globe-off': 'M3 3l18 18 M9.5 3.4A9 9 0 0 1 20.6 14.5 M5.6 5.6A9 9 0 0 0 18.4 18.4 M3 12h9 M15 12h6 M12 3a20 20 0 0 1 2.6 8 M9.5 9.5A20 20 0 0 0 12 21',
     monitor: 'M3 4h18v12H3z M8 21h8 M12 16v5',
     terminal: 'm5 7 5 5-5 5 M13 17h6',
     globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3a19 19 0 0 1 0 18 19 19 0 0 1 0-18',
