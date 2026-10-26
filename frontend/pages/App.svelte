@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import TitleBar from '../components/TitleBar.svelte';
+  import appIcon from '../../build/appicon.png';
   import { backend } from '../api';
   import type { View, Host } from '../types';
-  import { version } from '../package.json';
   import { defaultFilter, fleetFilters, filterHosts, isError, resolveSelection, type FleetFilter } from '../fleet';
 
   let view: View | null = null;
@@ -113,10 +114,12 @@
 
 <svelte:window onkeydown={handleKey} />
 
+<TitleBar connected={!!monitor && !connectionError && !view?.error} loading={!view && !connectionError}/>
+
 <div class="app">
   <a class="skip-link" href="#devices">К списку устройств</a>
   <nav class="sidebar" aria-label="Основная навигация">
-    <div class="rail-brand" aria-label="ScanSSH-ray"><Icon name="scan" size={25}/></div>
+    <div class="rail-brand" aria-label="ScanSSH-ray"><img src={appIcon} alt="" width="34" height="34" draggable="false"/></div>
     <div class="rail-divider"></div>
     <button class="nav-item" class:active={!modal} aria-label="Мониторинг" aria-current={!modal ? 'page' : undefined} onclick={() => { modal = ''; window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Icon size={21}/><span class="nav-tooltip">Мониторинг</span></button>
     <button class="nav-item" class:active={modal === 'pools'} aria-label="Пулы IP-адресов" aria-haspopup="dialog" onclick={() => modal = 'pools'}><Icon name="server" size={21}/><span class="nav-tooltip">Пулы IP-адресов</span></button>
@@ -128,7 +131,6 @@
   </nav>
 
   <main class="main">
-    <div class="app-bar"><div class="brand"><span class="brand-name">ScanSSH<span class="brand-suffix">-ray</span></span><span class="version">v{version}</span></div><div class="app-state"><span class="dot" class:ok={!!monitor && !connectionError}></span>{connectionError || view?.error ? 'Нет соединения с движком' : monitor ? 'Локальный движок подключён' : 'Подключение к движку…'}</div></div>
     <header class="header"><div><h1>Мониторинг сети</h1><p class="sub">Устройства, доступность и SSH-подключения.</p></div>
       <div class="head-actions">
         <button class="auto-control" role="switch" aria-checked={!!monitor?.auto} aria-label="Автопроверка" disabled={!monitor || busy} onclick={() => run(() => backend().SetAuto(!monitor?.auto))}><span class="switch-track" class:on={monitor?.auto}><span></span></span>Автопроверка</button>

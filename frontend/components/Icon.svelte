@@ -4,6 +4,9 @@
   const paths: Record<string, string> = {
     scan: 'M8 3H4a1 1 0 0 0-1 1v4 M16 3h4a1 1 0 0 1 1 1v4 M21 16v4a1 1 0 0 1-1 1h-4 M8 21H4a1 1 0 0 1-1-1v-4 M7 12h3l2-5 2 10 2-5h2',
     power: 'M12 3v9 M6.3 5.8a9 9 0 1 0 11.4 0',
+    minimise: 'M5 12h14',
+    maximise: 'M5 5h14v14H5z',
+    restore: 'M8 8h11v11H8z M5 15H4V4h11v1',
     bolt: 'm13 2-9 12h7l-1 8 10-13h-8z',
     logs: 'M8 4h12v16H4V8 M8 3v5H3 M8 12h8 M8 16h6',
     down: 'm6 9 6 6 6-6',
