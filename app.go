@@ -34,6 +34,21 @@ type App struct {
 
 func NewApp() *App                         { return &App{envPath: config.ResolveEnv()} }
 func (a *App) startup(ctx context.Context) { a.ctx = ctx; _ = a.ReloadConfig() }
+func (a *App) domReady(ctx context.Context) {
+	screens, err := runtime.ScreenGetAll(ctx)
+	if err != nil {
+		return
+	}
+	width, height := runtime.WindowGetSize(ctx)
+	for _, screen := range screens {
+		if screen.IsCurrent {
+			if screen.Size.Width > 0 && screen.Size.Height > 0 && (width > screen.Size.Width || height > screen.Size.Height) {
+				runtime.WindowMaximise(ctx)
+			}
+			return
+		}
+	}
+}
 func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

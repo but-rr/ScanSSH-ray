@@ -4,11 +4,15 @@
 :root{
   color-scheme:dark;
   --titlebar-height:48px;
+  --viewport-height:100vh;
+  --dialog-gutter:24px;
   --bg:#141517;--panel:#1c1e21;--panel-hover:#232529;--field:#25272c;--field-deep:#181a1d;
   --text:#eeeef0;--muted:#9b9da5;--dim:#81848e;--line:#37393f;--line-soft:#2b2d32;
   --primary:#e0e1e5;--mint:#79c9a4;--mint-deep:#233b31;--amber:#dab877;--red:#df9499;
   --radius:17px;--shadow:0 24px 80px #08090b80;
 }
+/* Older WebView2 understands vh but drops declarations containing dvh. */
+@supports(height:100dvh){:root{--viewport-height:100dvh}}
 *{box-sizing:border-box}
 html{min-width:360px;min-height:100%;scroll-behavior:smooth;scrollbar-gutter:stable}
 body{margin:0;padding-top:var(--titlebar-height);background:var(--bg);color:var(--text);font:13px/1.5 'Nunito Sans','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -25,7 +29,7 @@ input{min-width:0;outline:none}
 ::-webkit-scrollbar{width:7px;height:7px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#44464d;border-radius:8px}
-.app{display:grid;grid-template-columns:96px minmax(0,1fr);height:calc(100dvh - var(--titlebar-height));min-height:650px;position:relative}
+.app{display:grid;grid-template-columns:96px minmax(0,1fr);height:calc(var(--viewport-height) - var(--titlebar-height));min-height:0;position:relative}
 .skip-link{position:fixed;top:-70px;left:100px;z-index:80;padding:12px 18px;background:var(--primary);color:var(--bg);border-radius:8px}
 .skip-link:focus{top:calc(var(--titlebar-height) + 10px)}
 
@@ -48,7 +52,7 @@ input{min-width:0;outline:none}
 .window-titlebar.window-inactive .window-brand,.window-titlebar.window-inactive .app-state{opacity:.65}
 
 /* Floating navigation stays available at every window size. */
-.sidebar{position:sticky;top:calc(var(--titlebar-height) + 18px);display:flex;align-items:center;flex-direction:column;gap:10px;width:68px;height:calc(100dvh - var(--titlebar-height) - 36px);min-height:460px;margin:18px 0 18px 18px;padding:21px 9px 17px;background:var(--panel);border:1px solid var(--line-soft);border-radius:20px;z-index:20}
+.sidebar{position:fixed;top:calc(var(--titlebar-height) + 18px);bottom:18px;left:18px;display:flex;align-items:center;flex-direction:column;gap:10px;width:68px;min-height:0;padding:21px 9px 17px;background:var(--panel);border:1px solid var(--line-soft);border-radius:20px;z-index:20}
 .rail-brand{color:var(--text);display:grid;place-items:center;width:46px;height:39px}
 .rail-divider{width:26px;height:1px;margin:8px 0 13px;background:var(--line)}
 .nav-item{position:relative;display:grid;place-items:center;flex-shrink:0;width:46px;height:46px;border:0;border-radius:13px;background:transparent;color:var(--muted)}
@@ -56,10 +60,10 @@ input{min-width:0;outline:none}
 .nav-item.active{background:var(--primary);color:var(--bg);box-shadow:0 3px 12px #06070920}
 .nav-tooltip{position:absolute;left:59px;padding:7px 12px;background:#303238;color:var(--text);border:1px solid #42444a;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 4px 15px #0003;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-4px);transition:opacity 150ms,transform 150ms,visibility 150ms}
 .nav-item:hover .nav-tooltip,.nav-item:focus-visible .nav-tooltip{opacity:1;visibility:visible;transform:none}
-.side-spacer{flex:1;min-height:25px}
+.side-spacer{flex:1;min-height:0}
 .rail-status{width:6px;height:6px;background:var(--dim);border-radius:50%;margin-top:12px}
 .rail-status.ready{background:var(--mint);box-shadow:0 0 0 4px #79c9a40b}
-.main{display:flex;flex-direction:column;width:100%;min-width:0;min-height:0;max-width:1680px;margin:0 auto;padding:0 28px 18px 20px}
+.main{grid-column:2;display:flex;flex-direction:column;width:100%;min-width:0;min-height:0;max-width:1680px;margin:0 auto;padding:0 28px 18px 20px}
 .brand-name{font-size:19px;font-weight:800;letter-spacing:-.65px}
 .brand-suffix{font-weight:400;color:var(--muted)}
 .version{color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:10px}
@@ -272,14 +276,14 @@ tbody tr:last-child td{border-bottom:0}
 .text-button:hover{color:var(--text)}
 
 /* Dialogs share the same surface and keyboard focus treatment. */
-.overlay{position:fixed;inset:var(--titlebar-height) 0 0;display:flex;align-items:center;justify-content:center;z-index:50;padding:24px;background:#090a0d99;backdrop-filter:blur(9px);animation:overlay-in 160ms ease-out}
-.modal{display:flex;flex-direction:column;width:min(590px,100%);max-height:min(88dvh,850px);border:1px solid #45474f;border-radius:20px;background:#202226;box-shadow:var(--shadow);overflow:hidden;animation:modal-in 220ms ease-out}
+.overlay{position:fixed;inset:var(--titlebar-height) 0 0;display:flex;align-items:center;justify-content:center;z-index:50;padding:var(--dialog-gutter);overflow:auto;background:#090a0d99;backdrop-filter:blur(9px);animation:overlay-in 160ms ease-out}
+.modal{display:flex;flex-direction:column;width:min(590px,100%);min-height:0;max-height:min(850px,calc(var(--viewport-height) - var(--titlebar-height) - var(--dialog-gutter) - var(--dialog-gutter)));border:1px solid #45474f;border-radius:20px;background:#202226;box-shadow:var(--shadow);overflow:hidden;animation:modal-in 220ms ease-out}
 .modal-top{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;padding:24px;border-bottom:1px solid var(--line);flex-shrink:0}
 .modal-title{font-size:19px;font-weight:700;letter-spacing:-.4px}
 .modal-desc{margin:6px 0 0;color:var(--muted);font-size:11px}
 .close{display:grid;place-items:center;width:31px;height:31px;flex-shrink:0;border:1px solid var(--line);border-radius:8px;background:#2c2e34;color:#bcbec7}
 .close:hover{color:#fff;background:#3d3f46}
-.modal-body{padding:23px 24px;overflow-y:auto;overscroll-behavior:contain}
+.modal-body{min-height:0;padding:23px 24px;overflow-y:auto;overscroll-behavior:contain}
 .modal-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:9px;margin-top:24px}
 .config-path{padding:13px;border:1px solid var(--line);background:var(--field-deep);color:#bfc9c3;border-radius:9px;margin-bottom:23px;font-size:11px;overflow-wrap:anywhere}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px 20px;margin-bottom:25px}
@@ -301,8 +305,8 @@ tbody tr:last-child td{border-bottom:0}
 .pool-option>svg{color:var(--muted)}
 .journal-overlay{background:#090a0d73}
 .modal.journal-modal{width:min(820px,100%);background:#202226eb;backdrop-filter:blur(20px)}
-.journal-modal .modal-body{display:flex;flex-direction:column;padding:0;min-height:0;overflow:hidden}
-.activity-list{padding:5px 24px 10px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.journal-modal .modal-body{display:flex;flex-direction:column;flex:1 1 auto;padding:0;min-height:0;overflow:hidden}
+.activity-list{flex:1 1 auto;padding:5px 24px 10px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .activity-item{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
 .activity-item:last-child{border-bottom:0}
 .act-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:7px;background:#353840;flex-shrink:0;color:#b9bcc5}
@@ -332,7 +336,7 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media(max-width:1200px){
   .app{grid-template-columns:87px minmax(0,1fr)}
-  .sidebar{margin-left:13px;width:63px}
+  .sidebar{left:13px;width:63px}
   .main{padding-left:13px;padding-right:19px}
   .content-grid{grid-template-columns:minmax(0,1fr) 294px;gap:13px}
   .stats{gap:10px}
@@ -353,7 +357,7 @@ tbody tr:last-child td{border-bottom:0}
   .header h1{font-size:27px}
 }
 @media(max-width:980px){
-  .app{height:auto;min-height:calc(100dvh - var(--titlebar-height))}
+  .app{height:auto;min-height:calc(var(--viewport-height) - var(--titlebar-height))}
   .main{display:block}
   .content-grid{grid-template-columns:minmax(0,1fr)}
   .left-area{display:block}
@@ -382,6 +386,7 @@ tbody tr:last-child td{border-bottom:0}
   .stat-top>svg{display:none}
 }
 @media(max-width:700px){
+  :root{--dialog-gutter:14px}
   .app{display:block;padding-bottom:90px}
   .sidebar{position:fixed;top:auto;bottom:12px;left:50%;transform:translateX(-50%);flex-direction:row;justify-content:space-between;gap:8px;width:min(360px,calc(100vw - 28px));height:63px;min-height:0;padding:7px 10px;margin:0;border-radius:18px;box-shadow:0 8px 30px #0007;background:#232529f5;backdrop-filter:blur(16px)}
   .rail-brand,.rail-divider,.side-spacer,.rail-status{display:none}
@@ -445,8 +450,7 @@ tbody tr:last-child td{border-bottom:0}
   .field-label,.command-disclosure>summary,.tunnel-help{font-size:11px}
   .detail-bottom .tiny{font-size:10px}
   .footer{flex-direction:column;gap:12px;align-items:flex-start;margin-top:19px}
-  .overlay{padding:14px}
-  .modal{max-height:90dvh;border-radius:16px}
+  .modal{border-radius:16px}
   .modal-top{padding:20px 18px}
   .modal-body{padding:20px 18px}
   .modal-title{font-size:18px}
@@ -464,12 +468,31 @@ tbody tr:last-child td{border-bottom:0}
 }
 /* Small desktop windows keep a useful table instead of squeezing its rows. */
 @media(min-width:981px) and (max-height:780px){
-  .app{height:auto;min-height:calc(100dvh - var(--titlebar-height))}
+  .app{height:auto;min-height:calc(var(--viewport-height) - var(--titlebar-height))}
   .main{display:block}
   .content-grid{min-height:0;align-items:start}
   .left-area,.fleet-card{display:block}
   .table-wrap{max-height:480px}
   .detail-card{height:auto}
+}
+/* Short windows need less chrome, without moving destinations off screen. */
+@media(min-width:701px) and (max-height:620px){
+  .sidebar{top:calc(var(--titlebar-height) + 12px);bottom:12px;gap:6px;padding-top:12px;padding-bottom:12px}
+  .rail-brand{height:30px;flex-shrink:0}
+  .rail-divider{margin:4px 0 7px;flex-shrink:0}
+  .nav-item{height:42px}
+  .rail-status{flex-shrink:0;margin-top:6px}
+}
+@media(min-width:701px) and (max-height:420px){
+  .sidebar{gap:4px;padding-top:8px;padding-bottom:8px}
+  .sidebar .rail-brand,.sidebar .rail-divider,.sidebar .rail-status{display:none}
+  .nav-item{height:40px}
+}
+@media(max-height:480px){
+  :root{--dialog-gutter:12px}
+  .modal-top{padding:14px 18px}
+  .modal-desc{margin-top:3px}
+  .journal-footer{padding:8px 18px}
 }
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
