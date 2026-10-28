@@ -27,14 +27,15 @@ type View struct {
 }
 
 type App struct {
-	mu        sync.Mutex
-	ctx       context.Context
-	engine    *scanner.Engine
-	tunnels   tunnel.Manager
-	envPath   string
-	loadError string
-	tray      atomic.Pointer[tray.Tray]
-	exiting   atomic.Bool
+	mu             sync.Mutex
+	ctx            context.Context
+	engine         *scanner.Engine
+	tunnels        tunnel.Manager
+	envPath        string
+	loadError      string
+	tray           atomic.Pointer[tray.Tray]
+	exiting        atomic.Bool
+	restorePending atomic.Bool
 }
 
 func NewApp() *App { return &App{envPath: config.ResolveEnv()} }
@@ -50,6 +51,9 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.tray.Store(icon)
+	if a.restorePending.Swap(false) {
+		icon.Show()
+	}
 	_ = a.ReloadConfig()
 }
 
@@ -63,6 +67,13 @@ func (a *App) beforeClose(_ context.Context) bool {
 }
 
 func (a *App) HideToTray() error { return a.tray.Load().Hide() }
+
+func (a *App) restoreWindow() {
+	a.restorePending.Store(true)
+	if icon := a.tray.Load(); icon != nil && a.restorePending.Swap(false) {
+		icon.Show()
+	}
+}
 
 // The tray menu is the only ordinary application action allowed to exit.
 func (a *App) quitFromTray() {

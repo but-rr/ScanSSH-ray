@@ -21,7 +21,9 @@ import (
 	"scanssh-ray/backend/tunnel"
 )
 
-func nativeTestWindow(t *testing.T) uintptr {
+type testUIBlock struct{ entered, release chan struct{} }
+
+func nativeTestWindow(t *testing.T, pause ...*testUIBlock) uintptr {
 	t.Helper()
 	shellClass := windows.StringToUTF16Ptr("Shell_TrayWnd")
 	if shell, _, _ := user32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(shellClass)), 0); shell == 0 {
@@ -36,6 +38,11 @@ func nativeTestWindow(t *testing.T) uintptr {
 		instance, _, _ := getModule.Call(0)
 		className := windows.StringToUTF16Ptr("wailsWindow")
 		callback := windows.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
+			if msg == 0x8050 && len(pause) > 0 {
+				close(pause[0].entered)
+				<-pause[0].release
+				return 0
+			}
 			if msg == wmClose {
 				destroyWindow.Call(hwnd)
 				postQuitMessage.Call(0)
@@ -81,6 +88,51 @@ func nativeTestWindow(t *testing.T) uintptr {
 	return hwnd
 }
 
+func TestShellClickNeverWaitsForTheMainUIThread(t *testing.T) {
+	block := &testUIBlock{entered: make(chan struct{}), release: make(chan struct{})}
+	hwnd := nativeTestWindow(t, block)
+	ico, err := os.ReadFile(filepath.Join("..", "..", "build", "windows", "icon.ico"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := windows.GUID{Data1: windows.GetCurrentProcessId(), Data2: 0x45f0, Data3: 0x4a2c, Data4: [8]byte{0x90, 0x28, 0x46, 0x26, 0xaa, 0xf4, 0x2e, 0x61}}
+	icon, err := newTray(ico, nil, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(icon.Close)
+	postMessage.Call(hwnd, 0x8050, 0, 0)
+	select {
+	case <-block.entered:
+	case <-time.After(time.Second):
+		t.Fatal("UI pause did not start")
+	}
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(block.release) }) }
+	defer unblock()
+	callbackDone := make(chan struct{})
+	go func() {
+		user32.NewProc("SendMessageW").Call(icon.window, wmTray, 0, ninSelect|(1<<16))
+		close(callbackDone)
+	}()
+	select {
+	case <-callbackDone:
+	case <-time.After(200 * time.Millisecond):
+		unblock()
+		<-callbackDone
+		t.Fatal("Explorer callback blocked waiting for ShowWindow on the main UI thread")
+	}
+	unblock()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd); visible != 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("queued restoration did not show the window")
+}
+
 func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 	hwnd := nativeTestWindow(t)
 	ico, err := os.ReadFile(filepath.Join("..", "..", "build", "windows", "icon.ico"))
@@ -89,7 +141,8 @@ func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 	}
 	exit := make(chan struct{})
 	var exitOnce sync.Once
-	icon, err := New(ico, func() { exitOnce.Do(func() { close(exit) }) })
+	identity := windows.GUID{Data1: windows.GetCurrentProcessId(), Data2: 0x44df, Data3: 0x4a2c, Data4: [8]byte{0x90, 0x28, 0x46, 0x26, 0xaa, 0xf4, 0x2e, 0x61}}
+	icon, err := newTray(ico, func() { exitOnce.Do(func() { close(exit) }) }, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,40 +215,44 @@ func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 		}
 	}
 	visible := func() bool { result, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd); return result != 0 }
+	waitVisible := func(want bool, action string) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for visible() != want && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if visible() != want {
+			t.Fatalf("%s: visible=%v, want %v", action, visible(), want)
+		}
+	}
 	send := func(target, msg, wp, lp uintptr) { user32.NewProc("SendMessageW").Call(target, msg, wp, lp) }
 	assertForward("before-hide")
 	icon.Show()
-	if !visible() {
-		t.Fatal("tray could not show the window")
-	}
+	waitVisible(true, "show from notification thread")
 	if err := icon.Hide(); err != nil {
 		t.Fatal(err)
 	}
-	if visible() {
-		t.Fatal("hide left the taskbar window visible")
-	}
+	waitVisible(false, "hide to tray")
 	assertForward("hidden-connection-still-works")
-	send(icon.window, wmTray, 0, ninKeySelect)
-	if !visible() {
-		t.Fatal("keyboard selection did not restore the window")
-	}
+	send(icon.window, wmTray, 0, ninKeySelect|(1<<16))
+	waitVisible(true, "version-4 keyboard selection")
 	send(hwnd, wmSysCommand, scMinimise, 0)
-	if visible() {
-		t.Fatal("native system-menu minimise did not hide to tray")
-	}
+	waitVisible(false, "system-menu minimise")
 	assertForward("system-menu-minimise")
 	send(icon.window, wmCommand, menuOpen, 0)
-	if !visible() {
-		t.Fatal("Open menu command did not restore the window")
-	}
+	waitVisible(true, "Open menu command")
 	showWindow.Call(hwnd, 6) // Native ShowWindow(SW_MINIMIZE), like Wails' runtime.
-	if visible() {
-		t.Fatal("native minimisation did not hide to tray")
-	}
+	waitVisible(false, "native minimisation")
 	assertForward("native-minimise")
-	send(icon.window, wmTray, 0, wmLeftUp)
-	if !visible() {
-		t.Fatal("icon click did not restore the window")
+	send(icon.window, wmTray, 0, ninSelect|(1<<16))
+	waitVisible(true, "version-4 icon activation")
+	for i := 0; i < 20; i++ {
+		_ = icon.Hide()
+		icon.Show()
+	}
+	waitVisible(true, "last request wins after rapid hide/show")
+	if icon.data.GUID != identity || icon.data.Flags&0x20 == 0 {
+		t.Fatal("icon must retain a stable GUID")
 	}
 	notifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&icon.data)))
 	send(icon.window, uintptr(icon.taskbarCreated), 0, 0)

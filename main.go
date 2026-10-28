@@ -8,6 +8,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"scanssh-ray/backend/tray"
 )
 
 //go:embed all:frontend/dist
@@ -24,7 +25,8 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 20, G: 21, B: 23, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup, OnDomReady: app.domReady, OnBeforeClose: app.beforeClose, OnShutdown: app.shutdown, Bind: []interface{}{app},
-		Windows: &windows.Options{Theme: windows.Dark, WebviewIsTransparent: false, WindowIsTranslucent: false},
+		Windows:            &windows.Options{Theme: windows.Dark, WebviewIsTransparent: false, WindowIsTranslucent: false},
+		SingleInstanceLock: &options.SingleInstanceLock{UniqueId: tray.Identity, OnSecondInstanceLaunch: func(_ options.SecondInstanceData) { app.restoreWindow() }},
 	})
 	if err != nil {
 		log.Fatal(err)

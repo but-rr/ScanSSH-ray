@@ -1,9 +1,25 @@
 package tray
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
+	"strings"
 )
+
+// Identity names the application, including its single-instance lock.
+const Identity = "{96B5A9E0-7F0D-4A67-BAC4-A7D887F23051}"
+
+// Windows binds an unsigned notification GUID to the executable's full path.
+// Keep it stable across updates in place, but give other folders their own GUID.
+func identityForPath(path string) string {
+	path = strings.ToLower(strings.ReplaceAll(filepath.Clean(path), "/", "\\"))
+	sum := sha256.Sum256([]byte(Identity + "\x00" + path))
+	sum[6] = sum[6]&0x0f | 0x80
+	sum[8] = sum[8]&0x3f | 0x80
+	return fmt.Sprintf("{%x-%x-%x-%x-%x}", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+}
 
 // iconImage extracts an ICO image close to the notification area's icon size.
 // The complete ICO stays embedded in the EXE, so no companion file is needed.

@@ -6,6 +6,19 @@ import (
 	"testing"
 )
 
+func TestNotificationIdentityFollowsWindowsExecutablePath(t *testing.T) {
+	first := identityForPath("C:/Apps/ScanSSH-ray.exe")
+	if first != identityForPath("c:/apps/SCANSSH-RAY.EXE") {
+		t.Fatal("Windows path casing changed the notification identity")
+	}
+	if first != identityForPath("C:/Apps/ScanSSH-ray.exe") {
+		t.Fatal("restart changed the notification identity")
+	}
+	if first == identityForPath("C:/Other/ScanSSH-ray.exe") {
+		t.Fatal("different folders must not reuse an unsigned executable's GUID")
+	}
+}
+
 func TestIconRejectsCorruptInputs(t *testing.T) {
 	for _, input := range [][]byte{nil, {0, 0, 1, 0, 0, 0}, {0, 0, 1, 0, 2, 0}, {0, 0, 2, 0, 0, 0}, make([]byte, 22)} {
 		if _, err := iconImage(input); err == nil {

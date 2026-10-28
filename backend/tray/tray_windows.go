@@ -7,6 +7,8 @@ package tray
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,8 @@ const (
 	wmCommand     = 0x0111
 	wmSysCommand  = 0x0112
 	wmTray        = 0x8001
+	wmShowMain    = 0x8002
+	wmHideMain    = 0x8003
 	wmLeftUp      = 0x0202
 	wmLeftDouble  = 0x0203
 	wmRightUp     = 0x0205
@@ -32,6 +36,7 @@ const (
 	menuOpen      = 1
 	menuExit      = 2
 	nimAdd        = 0
+	nimModify     = 1
 	nimDelete     = 2
 	nimVersion    = 4
 	gwlpWndProc   = ^uintptr(3) // -4, without a signed-to-unsigned conversion.
@@ -71,6 +76,7 @@ var (
 	destroyIcon      = user32.NewProc("DestroyIcon")
 	notifyIcon       = shell32.NewProc("Shell_NotifyIconW")
 	getModule        = kernel32.NewProc("GetModuleHandleW")
+	changeFilter     = user32.NewProc("ChangeWindowMessageFilterEx")
 )
 
 type point struct{ X, Y int32 }
@@ -112,6 +118,8 @@ type Tray struct {
 	taskbarCreated                           uint32
 	className                                *uint16
 	data                                     iconData
+	identity                                 windows.GUID
+	visibilityRequest                        atomic.Uintptr
 	ready                                    atomic.Bool
 	closing                                  atomic.Bool
 	stop                                     sync.Once
@@ -121,6 +129,21 @@ type Tray struct {
 
 // New returns only once an actual notification icon and menu are available.
 func New(ico []byte, onExit func()) (*Tray, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	identity, err := windows.GUIDFromString(identityForPath(executable))
+	if err != nil {
+		return nil, err
+	}
+	return newTray(ico, onExit, identity)
+}
+
+func newTray(ico []byte, onExit func(), identity windows.GUID) (*Tray, error) {
 	image, err := iconImage(ico)
 	if err != nil {
 		return nil, err
@@ -129,7 +152,7 @@ func New(ico []byte, onExit func()) (*Tray, error) {
 	if main == 0 {
 		return nil, fmt.Errorf("не найдено окно ScanSSH-ray")
 	}
-	t := &Tray{mainWindow: main, done: make(chan struct{}), onExit: onExit}
+	t := &Tray{mainWindow: main, done: make(chan struct{}), onExit: onExit, identity: identity}
 	started := make(chan error, 1)
 	go t.run(image, started)
 	if err = <-started; err != nil {
@@ -200,7 +223,17 @@ func (t *Tray) init(image []byte) error {
 	created := windows.StringToUTF16Ptr("TaskbarCreated")
 	msg, _, _ := registerMessage.Call(uintptr(unsafe.Pointer(created)))
 	t.taskbarCreated = uint32(msg)
-	t.data = iconData{Window: t.window, ID: 1, Flags: 1 | 2 | 4 | 0x80, Callback: wmTray, Icon: t.icon, Version: 4}
+	// Explorer can run at a lower integrity level than the application. Allow
+	// only tray notifications and Explorer-restart messages through UIPI.
+	for _, message := range []uint32{wmTray, t.taskbarCreated} {
+		if message == 0 {
+			continue
+		}
+		if result, _, err := changeFilter.Call(t.window, uintptr(message), 1, 0); result == 0 {
+			return fmt.Errorf("ChangeWindowMessageFilterEx: %w", err)
+		}
+	}
+	t.data = iconData{Window: t.window, ID: 1, Flags: 1 | 2 | 4 | 0x20 | 0x80, Callback: wmTray, Icon: t.icon, Version: 4, GUID: t.identity}
 	t.data.Size = uint32(unsafe.Sizeof(t.data))
 	copy(t.data.Tip[:], windows.StringToUTF16("ScanSSH-ray"))
 	if err := t.addIcon(); err != nil {
@@ -222,10 +255,15 @@ func (t *Tray) init(image []byte) error {
 }
 
 func (t *Tray) addIcon() error {
+	// A killed process cannot remove its own icon. Reclaim our stable GUID
+	// before registering the new owner; the application has a single-instance lock.
+	notifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&t.data)))
 	if result, _, err := notifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&t.data))); result == 0 {
 		return fmt.Errorf("Shell_NotifyIconW: %w", err)
 	}
-	notifyIcon.Call(nimVersion, uintptr(unsafe.Pointer(&t.data)))
+	if result, _, err := notifyIcon.Call(nimVersion, uintptr(unsafe.Pointer(&t.data))); result == 0 {
+		return fmt.Errorf("Shell_NotifyIconW(NIM_SETVERSION): %w", err)
+	}
 	return nil
 }
 
@@ -261,6 +299,16 @@ func (t *Tray) windowProcedure(hwnd, msg, wParam, lParam uintptr) uintptr {
 }
 
 func (t *Tray) mainProcedure(hwnd, msg, wParam, lParam uintptr) uintptr {
+	if uint32(msg) == wmShowMain || uint32(msg) == wmHideMain {
+		if !t.closing.Load() && wParam == t.visibilityRequest.Load() {
+			if uint32(msg) == wmShowMain {
+				t.showOnUIThread()
+			} else if t.ready.Load() {
+				showWindow.Call(t.mainWindow, 0)
+			}
+		}
+		return 0
+	}
 	if !t.closing.Load() && t.ready.Load() {
 		if uint32(msg) == wmSysCommand && wParam&0xFFF0 == scMinimise {
 			_ = t.Hide()
@@ -301,7 +349,10 @@ func (t *Tray) Hide() error {
 	if t == nil || t.closing.Load() || !t.ready.Load() {
 		return fmt.Errorf("трей пока недоступен — окно остаётся открытым")
 	}
-	showWindow.Call(t.mainWindow, 0) // SW_HIDE removes the taskbar button too.
+	request := t.visibilityRequest.Add(1)
+	if result, _, err := postMessage.Call(t.mainWindow, wmHideMain, request, 0); result == 0 {
+		return fmt.Errorf("не удалось скрыть окно: %w", err)
+	}
 	return nil
 }
 
@@ -309,6 +360,13 @@ func (t *Tray) Show() {
 	if t == nil || t.closing.Load() {
 		return
 	}
+	// Never call ShowWindow synchronously from Explorer's callback thread.
+	// The main UI thread performs restoration and foreground activation.
+	request := t.visibilityRequest.Add(1)
+	postMessage.Call(t.mainWindow, wmShowMain, request, 0)
+}
+
+func (t *Tray) showOnUIThread() {
 	if iconic, _, _ := isIconic.Call(t.mainWindow); iconic != 0 {
 		showWindow.Call(t.mainWindow, 9) // SW_RESTORE restores the pre-minimise state.
 	} else {
