@@ -4,9 +4,11 @@
   import appIcon from '../../build/appicon.png';
   import { version } from '../package.json';
   import { windowRuntime } from '../window';
+  import { backend } from '../api';
 
   export let connected = false;
   export let loading = true;
+  export let onWindowError: (message: string) => void = () => {};
   let available = false;
   let maximised = false;
   let focused = true;
@@ -42,6 +44,10 @@
   });
 
   function toggleMaximise() { windowRuntime()?.WindowToggleMaximise(); }
+  async function hideToTray() {
+    try { await backend().HideToTray(); }
+    catch (error) { onWindowError(String(error)); }
+  }
   function doubleClick(event: MouseEvent) {
     if (event.button === 0 && !(event.target as HTMLElement).closest('button')) toggleMaximise();
   }
@@ -53,8 +59,8 @@
   <div class="window-drag-space"></div>
   <div class="app-state"><span class="dot" class:ok={connected}></span>{connected ? 'Локальный движок подключён' : loading ? 'Подключение к движку…' : 'Нет соединения с движком'}</div>
   <div class="window-controls" role="group" aria-label="Управление окном">
-    <button class="window-button" disabled={!available} aria-label="Свернуть окно" title="Свернуть" onclick={() => windowRuntime()?.WindowMinimise()}><Icon name="minimise" size={15}/></button>
+    <button class="window-button" disabled={!available} aria-label="Свернуть окно" title="Свернуть в трей" onclick={hideToTray}><Icon name="minimise" size={15}/></button>
     <button class="window-button" disabled={!available} aria-label={maximised ? 'Восстановить окно' : 'Развернуть окно'} title={maximised ? 'Восстановить' : 'Развернуть'} onclick={toggleMaximise}><Icon name={maximised ? 'restore' : 'maximise'} size={14}/></button>
-    <button class="window-button window-close" disabled={!available} aria-label="Закрыть приложение" title="Закрыть" onclick={() => windowRuntime()?.Quit()}><Icon name="x" size={16}/></button>
+    <button class="window-button window-close" disabled={!available} aria-label="Закрыть окно в трей" title="Закрыть окно в трей" onclick={hideToTray}><Icon name="x" size={16}/></button>
   </div>
 </header>

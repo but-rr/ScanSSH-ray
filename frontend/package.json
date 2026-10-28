@@ -1,6 +1,6 @@
 {
   "name": "scanssh-ray",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": { "dev": "vite --host 127.0.0.1", "test": "node --experimental-strip-types --test tests/*.test.mjs", "check": "svelte-check --tsconfig ./tsconfig.json", "build": "npm run check && vite build" },

@@ -114,7 +114,7 @@
 
 <svelte:window onkeydown={handleKey} />
 
-<TitleBar connected={!!monitor && !connectionError && !view?.error} loading={!view && !connectionError}/>
+<TitleBar connected={!!monitor && !connectionError && !view?.error} loading={!view && !connectionError} onWindowError={(error) => notify(error, true)}/>
 
 <div class="app">
   <a class="skip-link" href="#devices">К списку устройств</a>
@@ -199,7 +199,7 @@
         </div>
         <div class="tunnel-section">
           <details class="command-disclosure"><summary><span><Icon name="terminal" size={15}/>Команда подключения</span><Icon name="down" size={14}/></summary><div class="code-box"><div class="code-head"><span>OPENSSH</span><button class="code-copy" disabled={!command} onclick={copyCommand}><Icon name="copy" size={12}/>Копировать</button></div><div class="code-cmd mono">{command || 'Выберите устройство'}</div></div></details>
-          <p class="tunnel-help">{view?.tunnel.running ? `Укажите HTTP-прокси ${view.tunnel.localAddress} в нужном приложении и используйте учётные данные корпоративного прокси.` : 'Трафик передаётся через SSH к вашему прокси. Туннель работает, пока открыто приложение.'}</p>
+          <p class="tunnel-help">{view?.tunnel.running ? `Укажите HTTP-прокси ${view.tunnel.localAddress} в нужном приложении и используйте учётные данные корпоративного прокси.` : 'Трафик передаётся через SSH к вашему прокси. Туннель продолжает работать при сворачивании в трей.'}</p>
           <div class="detail-bottom"><span class="tiny">Прокси <span class="mono">{cfg ? `${cfg.proxyHost}:${cfg.proxyPort}` : '—'}</span></span><button class="icon-button" aria-label="Настройки подключения" onclick={() => modal = 'settings'}><Icon name="settings" size={15}/></button></div>
         </div>
       </aside></div>

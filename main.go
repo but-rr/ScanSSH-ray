@@ -13,6 +13,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/windows/icon.ico
+var trayIcon []byte
+
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{
@@ -20,7 +23,7 @@ func main() {
 		Frameless:        true,
 		BackgroundColour: &options.RGBA{R: 20, G: 21, B: 23, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        app.startup, OnDomReady: app.domReady, OnShutdown: app.shutdown, Bind: []interface{}{app},
+		OnStartup:        app.startup, OnDomReady: app.domReady, OnBeforeClose: app.beforeClose, OnShutdown: app.shutdown, Bind: []interface{}{app},
 		Windows: &windows.Options{Theme: windows.Dark, WebviewIsTransparent: false, WindowIsTranslucent: false},
 	})
 	if err != nil {

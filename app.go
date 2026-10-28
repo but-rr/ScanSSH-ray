@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"scanssh-ray/backend/config"
 	"scanssh-ray/backend/scanner"
+	"scanssh-ray/backend/tray"
 	"scanssh-ray/backend/tunnel"
 )
 
@@ -30,10 +33,43 @@ type App struct {
 	tunnels   tunnel.Manager
 	envPath   string
 	loadError string
+	tray      atomic.Pointer[tray.Tray]
+	exiting   atomic.Bool
 }
 
-func NewApp() *App                         { return &App{envPath: config.ResolveEnv()} }
-func (a *App) startup(ctx context.Context) { a.ctx = ctx; _ = a.ReloadConfig() }
+func NewApp() *App { return &App{envPath: config.ResolveEnv()} }
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	icon, err := tray.New(trayIcon, a.quitFromTray)
+	if err != nil {
+		// Never start background work or hide a window without a working tray.
+		log.Printf("Трей: %v", err)
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{Type: runtime.ErrorDialog, Title: "ScanSSH-ray", Message: "Не удалось создать значок в трее. Приложение будет закрыто.\n" + err.Error()})
+		a.exiting.Store(true)
+		runtime.Quit(ctx)
+		return
+	}
+	a.tray.Store(icon)
+	_ = a.ReloadConfig()
+}
+
+// beforeClose also intercepts Alt+F4 and native runtime.Quit requests.
+func (a *App) beforeClose(_ context.Context) bool {
+	if a.exiting.Load() {
+		return false
+	}
+	_ = a.HideToTray()
+	return true
+}
+
+func (a *App) HideToTray() error { return a.tray.Load().Hide() }
+
+// The tray menu is the only ordinary application action allowed to exit.
+func (a *App) quitFromTray() {
+	if a.exiting.CompareAndSwap(false, true) {
+		runtime.Quit(a.ctx)
+	}
+}
 func (a *App) domReady(ctx context.Context) {
 	screens, err := runtime.ScreenGetAll(ctx)
 	if err != nil {
@@ -50,6 +86,9 @@ func (a *App) domReady(ctx context.Context) {
 	}
 }
 func (a *App) shutdown(ctx context.Context) {
+	if icon := a.tray.Swap(nil); icon != nil {
+		icon.Close()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.tunnels.Close()
