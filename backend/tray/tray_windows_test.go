@@ -23,6 +23,17 @@ import (
 
 type testUIBlock struct{ entered, release chan struct{} }
 
+func testIdentity(t *testing.T) windows.GUID {
+	t.Helper()
+	// Windows remembers GUID/path associations after a test binary exits.
+	// A PID may be reused by a later test binary at another temporary path.
+	identity, err := windows.GenerateGUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
 func nativeTestWindow(t *testing.T, pause ...*testUIBlock) uintptr {
 	t.Helper()
 	shellClass := windows.StringToUTF16Ptr("Shell_TrayWnd")
@@ -95,7 +106,7 @@ func TestShellClickNeverWaitsForTheMainUIThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := windows.GUID{Data1: windows.GetCurrentProcessId(), Data2: 0x45f0, Data3: 0x4a2c, Data4: [8]byte{0x90, 0x28, 0x46, 0x26, 0xaa, 0xf4, 0x2e, 0x61}}
+	identity := testIdentity(t)
 	icon, err := newTray(ico, nil, identity)
 	if err != nil {
 		t.Fatal(err)
@@ -141,13 +152,13 @@ func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 	}
 	exit := make(chan struct{})
 	var exitOnce sync.Once
-	identity := windows.GUID{Data1: windows.GetCurrentProcessId(), Data2: 0x44df, Data3: 0x4a2c, Data4: [8]byte{0x90, 0x28, 0x46, 0x26, 0xaa, 0xf4, 0x2e, 0x61}}
+	identity := testIdentity(t)
 	icon, err := newTray(ico, func() { exitOnce.Do(func() { close(exit) }) }, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(icon.Close)
-	if registered, _, _ := notifyIcon.Call(1, uintptr(unsafe.Pointer(&icon.data))); registered == 0 {
+	if registered, _, _ := notifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&icon.data))); registered == 0 {
 		t.Fatal("Windows shell did not retain the notification icon")
 	}
 	if unsafe.Sizeof(uintptr(0)) == 8 && unsafe.Sizeof(icon.data) != 976 {
@@ -259,6 +270,9 @@ func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 	if !icon.ready.Load() {
 		t.Fatal("icon was not restored after TaskbarCreated")
 	}
+	if registered, _, _ := notifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&icon.data))); registered == 0 {
+		t.Fatal("Explorer restart marked the tray ready without registering its icon")
+	}
 	assertForward("explorer-restart")
 	send(icon.window, wmCommand, menuExit, 0)
 	select {
@@ -275,10 +289,13 @@ func TestNativeTrayHidesRestoresAndPreservesSSH(t *testing.T) {
 		t.Fatal("original native window procedure was not restored")
 	}
 	forward.Close()
+	_ = connection.SetDeadline(time.Now().Add(time.Second))
 	if _, err := connection.Write([]byte("after-shutdown")); err == nil {
 		buffer := make([]byte, 1)
 		if _, err := connection.Read(buffer); err == nil {
 			t.Fatal("SSH connection remains active after shutdown")
+		} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+			t.Fatal("SSH shutdown check timed out instead of observing a closed connection")
 		}
 	}
 }

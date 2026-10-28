@@ -190,7 +190,12 @@ func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	if !e.CanTunnel("127.0.0.1") {
 		t.Fatal("online host cannot tunnel")
 	}
-	execution := <-server.Executions
+	var execution testssh.Execution
+	select {
+	case execution = <-server.Executions:
+	case <-time.After(3 * time.Second):
+		t.Fatal("proxy command did not reach the SSH server")
+	}
 	if strings.Contains(execution.Command, c.ProxyPassword) || strings.Contains(execution.Command, c.ProxyUser) {
 		t.Fatal("credentials leaked to command line")
 	}
@@ -219,8 +224,14 @@ func TestRealSSHMonitoringLifecycle(t *testing.T) {
 	if server.Connections.Load() != 1 {
 		t.Fatalf("connection cache not reused: %d", server.Connections.Load())
 	}
-	raw, _ := json.Marshal(e.Snapshot())
-	log, _ := os.ReadFile(filepath.Join(base, "data", "events.log"))
+	raw, err := json.Marshal(e.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(filepath.Join(base, "data", "events.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(raw), c.ProxyPassword) || strings.Contains(string(log), c.ProxyPassword) {
 		t.Fatal("password in snapshot/log")
 	}

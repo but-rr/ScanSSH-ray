@@ -47,7 +47,10 @@ SSH_KEY_RULES='[{"match":"127.0.0.1","path":"keys/specific","user":"operator","p
 	if !filepath.IsAbs(key) || !strings.HasSuffix(key, "specific") || phrase != "rule-secret-unique" || user != "operator" {
 		t.Fatal("key rule resolution")
 	}
-	public, _ := json.Marshal(c.Summary())
+	public, err := json.Marshal(c.Summary())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, secret := range []string{"private-passphrase-unique", "private-user-unique", "private-password-unique", "rule-secret-unique"} {
 		if strings.Contains(string(public), secret) {
 			t.Fatalf("public config leaked %s", secret)
@@ -58,7 +61,9 @@ SSH_KEY_RULES='[{"match":"127.0.0.1","path":"keys/specific","user":"operator","p
 func TestConfigRejectsInvalidValuesWithoutEchoingSecrets(t *testing.T) {
 	for _, line := range []string{"SSH_KEY_RULES='secret-invalid-json'", "SSH_PORT=0", "AUTO_SCAN=nope", "PROXY_AUTH=ntlm", "TEST_URL='ftp://example.com'", "TEST_URL='http://user:secret@example.com'", "SCAN_CONCURRENCY=999"} {
 		path := filepath.Join(t.TempDir(), ".env")
-		_ = os.WriteFile(path, []byte(line), 0600)
+		if err := os.WriteFile(path, []byte(line), 0600); err != nil {
+			t.Fatal(err)
+		}
 		_, err := Load(path)
 		if err == nil {
 			t.Errorf("accepted %s", line)

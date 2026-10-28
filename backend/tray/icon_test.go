@@ -11,8 +11,13 @@ func TestNotificationIdentityFollowsWindowsExecutablePath(t *testing.T) {
 	if first != identityForPath("c:/apps/SCANSSH-RAY.EXE") {
 		t.Fatal("Windows path casing changed the notification identity")
 	}
-	if first != identityForPath("C:/Apps/ScanSSH-ray.exe") {
-		t.Fatal("restart changed the notification identity")
+	// Pin the persisted identity: changing this algorithm across releases would
+	// leave registrations from an earlier release behind after a crash.
+	if first != "{7fd1eaa5-33b9-8706-b638-b37335374078}" {
+		t.Fatal("notification identity is incompatible with previous releases")
+	}
+	if first != identityForPath(`C:\Apps\ScanSSH-ray.exe`) {
+		t.Fatal("Windows path separators changed the notification identity")
 	}
 	if first == identityForPath("C:/Other/ScanSSH-ray.exe") {
 		t.Fatal("different folders must not reuse an unsigned executable's GUID")
