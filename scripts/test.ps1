@@ -1,6 +1,8 @@
 . (Join-Path $PSScriptRoot 'common.ps1')
 Push-Location -LiteralPath $ProjectRoot
 try {
+    node --test (Join-Path $PSScriptRoot 'tests/release.test.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Release preparation tests failed.' }
     Install-FrontendDependencies
     Push-Location -LiteralPath (Join-Path $ProjectRoot 'frontend')
     try {

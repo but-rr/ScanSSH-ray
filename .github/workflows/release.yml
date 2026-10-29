@@ -1,0 +1,77 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      # Match the explicit cache path used by scripts/common.ps1.
+      npm_config_cache: ${{ github.workspace }}/.tools/npm-cache
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Prepare version and release notes
+        run: node scripts/release.mjs $env:RELEASE_TAG (Join-Path $env:RUNNER_TEMP 'release-notes.md')
+
+      - name: Set up Go from go.mod
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The existing build script installs the matching Wails CLI, runs tests,
+      # builds the frontend and EXE, and checks Windows version resources.
+      - name: Test and build Windows executable
+        run: ./scripts/build.ps1
+
+      # Upload to a draft first so a failed upload never publishes an empty release.
+      # Only the EXE and the tracked configuration example are uploaded.
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $IsDraft = gh release view $env:RELEASE_TAG --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($IsDraft -ne 'true') {
+              throw 'This release is already published. Use a new version tag for a new release.'
+            }
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title "ScanSSH-ray $env:RELEASE_TAG" --notes-file $Notes
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot create release draft.' }
+          }
+          gh release upload $env:RELEASE_TAG 'build/bin/ScanSSH-ray.exe' '.env.example' --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release assets. The release remains a draft.' }
+          gh release edit $env:RELEASE_TAG --title "ScanSSH-ray $env:RELEASE_TAG" --notes-file $Notes --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot publish release draft.' }
