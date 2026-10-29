@@ -45,7 +45,17 @@ func CurlConfig(c *config.Config) string {
 
 var httpCode = regexp.MustCompile(`SCANSSH:(\d{3})`)
 
-const checkScript = `$ErrorActionPreference='Stop'; $OutputEncoding=New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding=$OutputEncoding; try { $cfg=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd())); $cfg | & curl.exe --disable --config -; exit $LASTEXITCODE } catch { exit 99 }`
+// Windows PowerShell also uses Console.InputEncoding for native-process stdin.
+// Set it explicitly: UTF-8 console defaults may otherwise prepend a BOM to curl's config.
+const checkScript = `$ErrorActionPreference='Stop'
+$OutputEncoding=New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding=$OutputEncoding
+[Console]::OutputEncoding=$OutputEncoding
+try {
+    $cfg=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd()))
+    $cfg | & curl.exe --disable --config -
+    exit $LASTEXITCODE
+} catch { exit 99 }`
 
 func Check(ctx context.Context, client *ssh.Client, c *config.Config) Result {
 	if c.ProxyAuth == "basic" && (c.ProxyUser == "" || c.ProxyPassword == "") {
