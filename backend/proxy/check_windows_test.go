@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,7 +19,7 @@ import (
 	"scanssh-ray/backend/config"
 )
 
-// The test binary doubles as curl.exe to inspect the exact stdin bytes. Real
+// The test binary inspects the exact stdin bytes in place of curl.exe. Real
 // curl versions differ in whether they accept a BOM, so HTTP success alone
 // cannot detect this Windows PowerShell regression.
 func TestMain(m *testing.M) {
@@ -42,20 +41,14 @@ func TestWindowsPowerShellCurlConfigWithoutBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	helperDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(helperDir, "curl.exe"), binary, 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", helperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Reuse the running test executable rather than creating another EXE in
+	// Temp. The alias changes only command resolution, not the production pipe.
+	alias := "Set-Alias -Name curl.exe -Value '" + strings.ReplaceAll(executable, "'", "''") + "'; "
 	c := &config.Config{ProxyHost: "proxy.invalid", ProxyPort: 3128, ProxyAuth: "basic", ProxyUser: `domain\tester`, ProxyPassword: `p"a\ss$!&пароль`, TestURL: "http://origin.invalid/", ConnectTimeout: 2 * time.Second, CommandTimeout: 5 * time.Second}
 	configInput := base64.StdEncoding.EncodeToString([]byte(CurlConfig(c)))
 	for _, initialEncoding := range []string{"default", "UTF-8 with BOM"} {
 		t.Run(initialEncoding, func(t *testing.T) {
-			script := checkScript
+			script := alias + checkScript
 			if initialEncoding == "UTF-8 with BOM" {
 				// Reproduce the runner's console setting even on PCs whose
 				// default code page would hide the bug.
@@ -63,14 +56,18 @@ func TestWindowsPowerShellCurlConfigWithoutBOM(t *testing.T) {
 			}
 			command := EncodedPowerShell(script)
 			encoded := command[strings.LastIndex(command, " ")+1:]
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			// Allow for cold Windows PowerShell startup on hosted runners.
+			// This is a test harness limit; curl's own timeouts are unchanged.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
+			cmd.WaitDelay = 5 * time.Second
 			cmd.Env = append(os.Environ(), "SCANSSH_TEST_CURL_STDIN=1", "SCANSSH_TEST_CURL_CONFIG="+configInput)
 			cmd.Stdin = strings.NewReader(configInput)
+			started := time.Now()
 			output, err := cmd.CombinedOutput()
 			if err != nil || !strings.Contains(string(output), "SCANSSH:200") {
-				t.Fatalf("PowerShell/curl stdin encoding failed: %v %s", err, output)
+				t.Fatalf("PowerShell/curl stdin encoding failed after %s (context: %v): %v\n%s", time.Since(started), ctx.Err(), err, output)
 			}
 		})
 	}
@@ -110,13 +107,15 @@ func TestWindowsPowerShellCurlThroughBasicProxy(t *testing.T) {
 			c := &config.Config{ProxyHost: u.Hostname(), ProxyPort: port, ProxyAuth: "basic", ProxyUser: user, ProxyPassword: password, TestURL: target, ConnectTimeout: 2 * time.Second, CommandTimeout: 5 * time.Second}
 			command := EncodedPowerShell(checkScript)
 			encoded := command[strings.LastIndex(command, " ")+1:]
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
+			cmd.WaitDelay = 5 * time.Second
 			cmd.Stdin = strings.NewReader(base64.StdEncoding.EncodeToString([]byte(CurlConfig(c))))
+			started := time.Now()
 			output, err := cmd.CombinedOutput()
 			if err != nil || !strings.Contains(string(output), "SCANSSH:"+strconv.Itoa(status)) {
-				t.Fatalf("PowerShell/curl transport failed: %v %s", err, output)
+				t.Fatalf("PowerShell/curl transport failed after %s (context: %v): %v\n%s", time.Since(started), ctx.Err(), err, output)
 			}
 			select {
 			case ok := <-requests:
