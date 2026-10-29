@@ -4,6 +4,8 @@ interface Backend {
   HideToTray(): Promise<void>;
   Scan(): Promise<void>; CancelScan(): Promise<void>; SetAuto(enabled: boolean): Promise<void>;
   ScanHost(ip: string): Promise<void>;
+  OpenHostConsole(ip: string): Promise<void>;
+  SetAdministratorPassword(ip: string, user: string, password: string): Promise<void>;
   ReloadConfig(): Promise<void>; OpenConfig(): Promise<void>;
   StartTunnel(ip: string, port: number): Promise<void>; StopTunnel(): Promise<void>;
   ExportReport(): Promise<string>;

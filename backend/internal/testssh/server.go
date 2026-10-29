@@ -30,7 +30,7 @@ type Server struct {
 	Executions  chan Execution
 }
 
-func Start(t *testing.T) *Server {
+func Start(t *testing.T, execute ...func(Execution) (string, uint32)) *Server {
 	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -116,9 +116,14 @@ func Start(t *testing.T) *Server {
 								}
 								_ = req.Reply(true, nil)
 								input, _ := io.ReadAll(channel)
-								s.Executions <- Execution{payload.Command, string(input)}
-								_, _ = fmt.Fprintf(channel, "SCANSSH:%03d", s.ReplyCode.Load())
-								_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+								execution := Execution{payload.Command, string(input)}
+								s.Executions <- execution
+								output, status := fmt.Sprintf("SCANSSH:%03d", s.ReplyCode.Load()), uint32(0)
+								if len(execute) > 0 {
+									output, status = execute[0](execution)
+								}
+								_, _ = io.WriteString(channel, output)
+								_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
 								return
 							}
 						}()

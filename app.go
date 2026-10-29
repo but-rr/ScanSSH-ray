@@ -11,10 +11,13 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"scanssh-ray/backend/admin"
 	"scanssh-ray/backend/config"
 	"scanssh-ray/backend/scanner"
+	"scanssh-ray/backend/terminal"
 	"scanssh-ray/backend/tray"
 	"scanssh-ray/backend/tunnel"
 )
@@ -168,6 +171,69 @@ func (a *App) ScanHost(ip string) error {
 		return fmt.Errorf("сначала исправьте .env")
 	}
 	return a.engine.ScanHost(ip)
+}
+
+func (a *App) OpenHostConsole(ip string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.engine == nil {
+		return fmt.Errorf("сначала исправьте .env")
+	}
+	cfg := a.engine.Config
+	if !configuredHost(cfg, ip) {
+		return fmt.Errorf("ПК отсутствует в настроенных пулах")
+	}
+	path, _, user := cfg.Identity(ip)
+	if err := terminal.Open(terminal.Options{IP: ip, Port: cfg.SSHPort, User: user, KeyPath: path, KnownHosts: cfg.KnownHosts}); err != nil {
+		return err
+	}
+	a.engine.AddEvent(ip+": открыта отдельная консоль CMD через SSH", "info")
+	return nil
+}
+
+func configuredHost(cfg *config.Config, ip string) bool {
+	for _, host := range cfg.IPs {
+		if host == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) SetAdministratorPassword(ip, user, password string) error {
+	if err := admin.ValidatePasswordRequest(user, password); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	engine := a.engine
+	if engine == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("сначала исправьте .env")
+	}
+	if !configuredHost(engine.Config, ip) {
+		a.mu.Unlock()
+		return fmt.Errorf("ПК отсутствует в настроенных пулах")
+	}
+	appContext := a.ctx
+	if appContext == nil {
+		appContext = context.Background()
+	}
+	a.mu.Unlock()
+	// A dedicated SSH connection keeps monitoring and the active tunnel intact.
+	// Do not hold the application lock during a remote operation.
+	ctx, cancel := context.WithTimeout(appContext, time.Minute)
+	defer cancel()
+	err := admin.ChangePassword(ctx, engine.SSH, ip, user, password)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.engine == engine {
+		if err == nil {
+			engine.AddEvent(ip+": изменён пароль локального администратора "+user, "ok")
+		} else {
+			engine.AddEvent(ip+": смена пароля администратора не подтверждена", "warn")
+		}
+	}
+	return err
 }
 
 func (a *App) SetAuto(enabled bool) {

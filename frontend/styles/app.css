@@ -226,6 +226,16 @@ tbody tr:last-child td{border-bottom:0}
 .detail-status.offline{color:var(--muted)}
 .detail-message{margin:9px 0 0;font-size:10px;color:var(--muted);overflow-wrap:anywhere}
 .detail-section{padding:10px 19px 16px}
+.host-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.host-actions .btn{min-width:0;padding-inline:8px;gap:6px;font-size:11px}
+.password-target{display:flex;align-items:center;gap:12px;padding:13px 15px;border:1px solid var(--line);border-radius:9px;background:var(--field)}
+.password-target>svg{color:var(--muted)}
+.password-target strong{display:block;font-size:16px}
+.password-target span{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
+.password-form{display:grid;gap:15px}
+.password-note{display:flex;align-items:flex-start;gap:8px;margin:0;line-height:1.6;color:var(--muted)}
+.password-note svg{flex-shrink:0;margin-top:2px}
+.password-form .modal-actions{margin-top:5px}
 .health-disclosure>summary{display:flex;align-items:center;justify-content:space-between;min-height:29px;gap:8px;list-style:none;cursor:pointer;font-size:11px;color:var(--muted)}
 .health-disclosure>summary::-webkit-details-marker{display:none}
 .health-disclosure>summary:hover{color:var(--text)}

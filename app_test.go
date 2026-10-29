@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"testing"
+
+	"scanssh-ray/backend/config"
+	"scanssh-ray/backend/scanner"
 )
 
 func TestCloseRequestsDoNotExitUntilTrayApproves(t *testing.T) {
@@ -18,5 +21,17 @@ func TestCloseRequestsDoNotExitUntilTrayApproves(t *testing.T) {
 	app.exiting.Store(true)
 	if app.beforeClose(context.Background()) {
 		t.Fatal("tray-approved shutdown was blocked")
+	}
+}
+
+func TestAdministrationRejectsHostsOutsideConfiguredPools(t *testing.T) {
+	app := &App{engine: &scanner.Engine{Config: &config.Config{IPs: []string{"10.0.0.5"}}}}
+	for _, ip := range []string{"", "10.0.0.6", "10.0.0.5 & calc.exe"} {
+		if err := app.OpenHostConsole(ip); err == nil {
+			t.Fatal("console accepted a host outside the pool")
+		}
+		if err := app.SetAdministratorPassword(ip, "admin", "test-password"); err == nil {
+			t.Fatal("password change accepted a host outside the pool")
+		}
 	}
 }

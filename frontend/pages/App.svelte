@@ -21,6 +21,11 @@
   let configPort = 0;
   let message = '';
   let messageError = false;
+  let passwordHost: { ip: string; sshUser: string } | null = null;
+  let administratorUser = '';
+  let administratorPassword = '';
+  let repeatedPassword = '';
+  let passwordError = '';
   let toastTimer: ReturnType<typeof setTimeout>;
   const labels: Record<string, string> = {
     unknown: 'Не проверен', online: 'SSH и интернет доступны', limited: 'Проверка через прокси не прошла',
@@ -49,6 +54,9 @@
   $: cfg = monitor?.config;
   $: canTunnel = !!selected?.internet && !!selected?.ssh && !!selected?.internetCheckedAt && Date.now() - new Date(selected.internetCheckedAt).getTime() < ((cfg?.internetInterval || 30) + 10) * 1000;
   $: command = selected && cfg ? `ssh -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="${cfg.knownHosts}"${selected.keyPath ? ` -i "${selected.keyPath}"` : ''} -p ${cfg.sshPort} -L 127.0.0.1:${port}:${cfg.proxyHost}:${cfg.proxyPort} ${selected.user}@${selected.ip}` : '';
+  $: if (modal !== 'password') {
+    passwordHost = null; administratorUser = ''; administratorPassword = ''; repeatedPassword = ''; passwordError = '';
+  }
 
   async function refresh() {
     try {
@@ -79,7 +87,35 @@
   }
   function chooseFilter(next: FleetFilter) { filter = next; page = 0; }
   function choosePool(label: string) { selectedPool = selectedPool === label ? '' : label; page = 0; }
+  function openPasswordDialog() {
+    if (!selected || busy) return;
+    passwordHost = { ip: selected.ip, sshUser: selected.user };
+    administratorUser = /[\\/@]/.test(selected.user) ? '' : selected.user;
+    administratorPassword = ''; repeatedPassword = ''; passwordError = '';
+    modal = 'password';
+  }
+  async function changeAdministratorPassword() {
+    if (!passwordHost || busy) return;
+    if (!administratorUser.trim() || administratorUser !== administratorUser.trim() || /[\\/\r\n\0]/.test(administratorUser)) {
+      passwordError = 'Укажите имя локальной учётной записи без домена.'; return;
+    }
+    if (!administratorPassword || administratorPassword !== repeatedPassword) {
+      passwordError = 'Введите новый пароль и совпадающее подтверждение.'; return;
+    }
+    const target = passwordHost.ip;
+    const account = administratorUser;
+    let secret = administratorPassword;
+    administratorPassword = ''; repeatedPassword = ''; passwordError = '';
+    busy = true;
+    try {
+      await backend().SetAdministratorPassword(target, account, secret);
+      modal = '';
+      notify(`Пароль администратора ${account} на ${target} изменён`);
+    } catch (error) { passwordError = String(error); }
+    finally { secret = ''; busy = false; await refresh(); }
+  }
   function handleKey(event: KeyboardEvent) {
+    if (event.key === 'Escape' && modal === 'password' && busy) { event.preventDefault(); return; }
     if (event.key === 'Escape') { modal = ''; return; }
     const target = event.target as HTMLElement;
     if (event.key === '/' && !modal && !event.ctrlKey && !event.metaKey && !event.altKey && !target.closest('input, textarea, select, [contenteditable]')) {
@@ -186,7 +222,9 @@
         </div>
         {#if view?.tunnel.running}<div class="live-tunnel"><span class="dot ok"></span><span class="mono">{view.tunnel.localAddress}</span><Icon name="arrow" size={13}/><span class="mono">{view.tunnel.target}</span></div>{/if}
         {#if view?.tunnel.error}<p class="error-text tunnel-error" role="alert">{view.tunnel.error}</p>{/if}
-        <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={15}/></div><button class="detail-host mono host-button copy-ip" disabled={!selected} title="Скопировать IP" aria-label={selected ? `Скопировать IP ${selected.ip}` : 'Устройство не выбрано'} onclick={() => selected && copyIP(selected.ip)}>{selected?.ip || 'Не выбрано'}{#if selected}<Icon name="copy" size={14}/>{/if}</button><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите IP в списке слева'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span class={`dot ${selected ? kind(selected) : ''}`}></span><span>{selected ? labels[selected.status] || selected.status : 'Ожидание выбора устройства'}</span></div>{#if selected && selected.status !== 'online'}<p class="detail-message">{selected.message}</p>{/if}</div>
+        <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={15}/></div><button class="detail-host mono host-button copy-ip" disabled={!selected} title="Скопировать IP" aria-label={selected ? `Скопировать IP ${selected.ip}` : 'Устройство не выбрано'} onclick={() => selected && copyIP(selected.ip)}>{selected?.ip || 'Не выбрано'}{#if selected}<Icon name="copy" size={14}/>{/if}</button><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите IP в списке слева'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span class={`dot ${selected ? kind(selected) : ''}`}></span><span>{selected ? labels[selected.status] || selected.status : 'Ожидание выбора устройства'}</span></div>{#if selected && selected.status !== 'online'}<p class="detail-message">{selected.message}</p>{/if}
+          <div class="host-actions"><button class="btn host-action" disabled={!selected || busy} title="Открыть CMD выбранного ПК в отдельном окне через SSH" onclick={() => { if (selected) { const ip = selected.ip; void run(() => backend().OpenHostConsole(ip), `Открыта консоль ${ip}`); } }}><Icon name="terminal" size={15}/>Открыть CMD</button><button class="btn admin-password-action" disabled={!selected || busy} title="Изменить пароль локального администратора на выбранном ПК" onclick={openPasswordDialog}><Icon name="shield" size={15}/>Пароль</button></div>
+        </div>
         <div class="fields tunnel-fields"><div><label class="field-label" for="local-port">Локальный порт</label><input class="input mono" id="local-port" type="number" min="1" max="65535" disabled={!!view?.tunnel.running || busy} aria-invalid={!Number.isInteger(port) || port < 1 || port > 65535} bind:value={port}/></div><div><label class="field-label" for="ssh-user">SSH-пользователь</label><input class="input mono" id="ssh-user" value={selected?.user || cfg?.user || ''} readonly/></div>{#if !Number.isInteger(port) || port < 1 || port > 65535}<p class="error-text port-error" role="alert">Укажите порт от 1 до 65535.</p>{/if}</div>
         <div class="detail-section"><details class="health-disclosure" open={!!selected && selected.status !== 'online'}><summary><span>Состояние соединения</span><Icon name="down" size={14}/></summary>
           <div class="check-line"><span class="check-name"><Icon name="terminal" size={15}/>Авторизация SSH</span><span class="check-answer" class:ok={selected?.ssh}>{selected?.ssh ? 'Успешно' : selected?.checkedAt ? 'Не подтверждена' : 'Не проверена'}</span></div>
@@ -209,8 +247,19 @@
 </div>
 
 {#if modal}
-  <div class="overlay show" class:journal-overlay={modal === 'journal'}><div class="modal" class:journal-modal={modal === 'journal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1" use:focusModal><div class="modal-top"><div><div class="modal-title" id="modal-title">{modal === 'journal' ? 'Журнал событий' : modal === 'pools' ? 'Пулы IP-адресов' : modal === 'settings' ? 'Настройки подключения' : 'Как работает ScanSSH-ray'}</div><p class="modal-desc">{modal === 'journal' ? 'История вашей сети · обновляется автоматически' : modal === 'pools' ? 'Выберите диапазон для отображения в списке устройств' : modal === 'settings' ? 'Ваш локальный профиль SSH и прокси' : 'Проверки, подключения и ваши данные'}</p></div><button class="close" aria-label="Закрыть" onclick={() => modal = ''}><Icon name="x"/></button></div><div class="modal-body">
-    {#if modal === 'journal'}
+  <div class="overlay show" class:journal-overlay={modal === 'journal'}><div class="modal" class:journal-modal={modal === 'journal'} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1" use:focusModal><div class="modal-top"><div><div class="modal-title" id="modal-title">{modal === 'password' ? 'Пароль администратора' : modal === 'journal' ? 'Журнал событий' : modal === 'pools' ? 'Пулы IP-адресов' : modal === 'settings' ? 'Настройки подключения' : 'Как работает ScanSSH-ray'}</div><p class="modal-desc">{modal === 'password' ? 'Изменение пароля на выбранном Windows-ПК' : modal === 'journal' ? 'История вашей сети · обновляется автоматически' : modal === 'pools' ? 'Выберите диапазон для отображения в списке устройств' : modal === 'settings' ? 'Ваш локальный профиль SSH и прокси' : 'Проверки, подключения и ваши данные'}</p></div><button class="close" aria-label="Закрыть" disabled={modal === 'password' && busy} onclick={() => modal = ''}><Icon name="x"/></button></div><div class="modal-body">
+    {#if modal === 'password' && passwordHost}
+      <div class="password-target"><Icon name="monitor" size={21}/><div><strong class="mono">{passwordHost.ip}</strong><span>SSH-подключение: {passwordHost.sshUser}</span></div></div>
+      <p class="explanation">Пароль изменится у указанной локальной учётной записи на этом ПК. Нужны административные права SSH-пользователя; выбранная учётная запись должна входить в группу администраторов.</p>
+      <form class="password-form" onsubmit={(event) => { event.preventDefault(); void changeAdministratorPassword(); }}>
+        <div><label class="field-label" for="administrator-user">Локальный администратор</label><input id="administrator-user" class="input" autocomplete="off" required disabled={busy} bind:value={administratorUser}/></div>
+        <div><label class="field-label" for="administrator-password">Новый пароль</label><input id="administrator-password" class="input" type="password" autocomplete="new-password" maxlength="256" required disabled={busy} bind:value={administratorPassword}/></div>
+        <div><label class="field-label" for="administrator-password-repeat">Повторите новый пароль</label><input id="administrator-password-repeat" class="input" type="password" autocomplete="new-password" maxlength="256" required disabled={busy} bind:value={repeatedPassword}/></div>
+        <p class="tiny password-note"><Icon name="shield" size={14}/>Пароль передаётся по SSH и не сохраняется в настройках или журнале.</p>
+        {#if passwordError}<p class="error-text" role="alert">{passwordError}</p>{/if}
+        <div class="modal-actions"><button type="button" class="btn" disabled={busy} onclick={() => modal = ''}>Отмена</button><button type="submit" class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Меняем пароль…' : 'Изменить пароль'}</button></div>
+      </form>
+    {:else if modal === 'journal'}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable history needs keyboard focus for PageUp and PageDown.) -->
       <div class="activity-list" tabindex="0" role="region" aria-label="События мониторинга">{#each monitor?.events || [] as event}<div class="activity-item"><div class={`act-icon ${event.kind}`}><Icon name={event.kind === 'ok' ? 'check' : event.kind === 'warn' ? 'alert' : 'clock'} size={13}/></div><div class="act-main">{event.message}</div><div class="act-time mono" title={new Date(event.at).toLocaleString('ru-RU')}>{time(event.at)}</div></div>{:else}<div class="empty">{monitor ? 'Событий пока нет' : 'Ожидание загрузки журнала…'}</div>{/each}</div>
       <div class="journal-footer"><span class="tiny">Последних событий: {monitor?.events.length || 0}</span><button class="btn mini ghost" disabled={!monitor || busy} onclick={() => run(async () => { const path = await backend().ExportReport(); if (path) notify('Отчёт сохранён'); })}><Icon name="download" size={15}/>Отчёт</button></div>
