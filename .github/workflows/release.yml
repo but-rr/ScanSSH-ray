@@ -1,15 +1,22 @@
 name: Windows Release
+run-name: Release ${{ inputs.tag || github.ref_name }}
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Версия релиза, например v0.3.0 (ветка main)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -22,12 +29,12 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       # Match the explicit cache path used by scripts/common.ps1.
       npm_config_cache: ${{ github.workspace }}/.tools/npm-cache
 
     steps:
-      - name: Checkout tagged source
+      - name: Checkout selected commit
         uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -38,6 +45,11 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Check release source and existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-release.mjs check
 
       - name: Prepare version and release notes
         run: node scripts/release.mjs $env:RELEASE_TAG (Join-Path $env:RUNNER_TEMP 'release-notes.md')
@@ -62,6 +74,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          # Reserve the exact tested commit only after every build check passed.
+          node scripts/check-release.mjs ensure-tag
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot create or verify the release tag.' }
           $IsDraft = gh release view $env:RELEASE_TAG --json isDraft --jq '.isDraft' 2>$null
           if ($LASTEXITCODE -eq 0) {
             if ($IsDraft -ne 'true') {
@@ -73,5 +88,7 @@ jobs:
           }
           gh release upload $env:RELEASE_TAG 'build/bin/ScanSSH-ray.exe' '.env.example' --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release assets. The release remains a draft.' }
+          node scripts/check-release.mjs verify-tag
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag changed. The release remains a draft.' }
           gh release edit $env:RELEASE_TAG --title "ScanSSH-ray $env:RELEASE_TAG" --notes-file $Notes --draft=false
           if ($LASTEXITCODE -ne 0) { throw 'Cannot publish release draft.' }
