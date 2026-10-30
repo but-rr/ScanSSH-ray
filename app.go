@@ -246,15 +246,22 @@ func (a *App) SetAuto(enabled bool) {
 
 func (a *App) StartTunnel(ip string, port int) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.engine == nil || !a.engine.CanTunnel(ip) {
+	engine := a.engine
+	if engine == nil || !engine.CanTunnel(ip) {
+		a.mu.Unlock()
 		return fmt.Errorf("выполните свежую проверку SSH и интернета выбранного ПК")
 	}
-	cfg := a.engine.Config
-	if err := a.tunnels.Start(a.ctx, a.engine.SSH, ip, port, net.JoinHostPort(cfg.ProxyHost, strconv.Itoa(cfg.ProxyPort))); err != nil {
+	target := net.JoinHostPort(engine.Config.ProxyHost, strconv.Itoa(engine.Config.ProxyPort))
+	a.mu.Unlock()
+	if err := a.tunnels.Start(engine.Context(), engine.SSH, ip, port, target); err != nil {
 		return err
 	}
-	a.engine.AddEvent(ip+": запущен туннель на 127.0.0.1:"+strconv.Itoa(port), "ok")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.engine != engine {
+		return fmt.Errorf("конфигурация изменилась: подключение туннеля отменено")
+	}
+	engine.AddEvent(ip+": запущен туннель на 127.0.0.1:"+strconv.Itoa(port), "ok")
 	return nil
 }
 

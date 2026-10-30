@@ -28,10 +28,10 @@ func Expand(input string) ([]Pool, []string, error) {
 		}
 		pool := Pool{Label: text, IPs: []string{}}
 		for _, ip := range items {
+			pool.IPs = append(pool.IPs, ip)
 			if !seen[ip] {
 				seen[ip] = true
 				ips = append(ips, ip)
-				pool.IPs = append(pool.IPs, ip)
 			}
 			if len(ips) > 512 {
 				return nil, nil, fmt.Errorf("не более 512 уникальных IP")

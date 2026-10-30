@@ -15,5 +15,5 @@ export interface Monitor {
   pending: {ip: string; fingerprint: string; algorithm: string; changed: boolean}[];
   scanning: boolean; scanIP: string; auto: boolean; lastScan: string | null;
 }
-export interface Tunnel { running: boolean; ip: string; localAddress: string; target: string; startedAt: string | null; error: string }
+export interface Tunnel { running: boolean; connecting: boolean; ip: string; localAddress: string; target: string; startedAt: string | null; error: string }
 export interface View { monitor: Monitor | null; tunnel: Tunnel; error: string; envPath: string }

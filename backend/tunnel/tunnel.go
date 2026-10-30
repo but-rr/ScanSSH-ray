@@ -14,6 +14,7 @@ import (
 
 type State struct {
 	Running      bool       `json:"running"`
+	Connecting   bool       `json:"connecting"`
 	IP           string     `json:"ip"`
 	LocalAddress string     `json:"localAddress"`
 	Target       string     `json:"target"`
@@ -39,51 +40,96 @@ func (s *session) close() {
 }
 
 type Manager struct {
-	mu     sync.Mutex
-	active *session
-	state  State
-	closed bool
+	mu      sync.Mutex
+	active  *session
+	pending *connectionAttempt
+	state   State
+	closed  bool
 }
+
+type connectionAttempt struct{ cancel context.CancelFunc }
 
 func (m *Manager) State() State { m.mu.Lock(); defer m.mu.Unlock(); return m.state }
 
 func (m *Manager) Start(ctx context.Context, sshManager *sshclient.Manager, ip string, port int, target string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return fmt.Errorf("приложение завершает работу")
-	}
-	if m.active != nil {
-		return fmt.Errorf("сначала остановите действующий туннель")
-	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("порт должен быть от 1 до 65535")
 	}
+	startCtx, startCancel := context.WithCancel(ctx)
+	defer startCancel()
+	attempt := &connectionAttempt{cancel: startCancel}
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return fmt.Errorf("приложение завершает работу")
+	}
+	if m.active != nil || m.pending != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("сначала остановите действующий туннель")
+	}
+	m.pending = attempt
+	m.state = State{Connecting: true, IP: ip, LocalAddress: address, Target: target}
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		if m.pending == attempt {
+			m.pending = nil
+			m.state = State{}
+		}
+		m.mu.Unlock()
+	}()
+	// Reserve the attempt under the lock, but perform all I/O outside it.
+	// Stop can cancel this attempt without waiting for SSH or the proxy probe.
+	activated := false
 	listener, err := net.Listen("tcp4", address)
 	if err != nil {
 		return fmt.Errorf("локальный порт %d занят или недоступен", port)
 	}
-	client, err := sshManager.Connect(ctx, ip, false)
+	defer func() {
+		if !activated {
+			_ = listener.Close()
+		}
+	}()
+	client, err := sshManager.Connect(startCtx, ip, false)
 	if err != nil {
-		_ = listener.Close()
+		if startCtx.Err() != nil {
+			return fmt.Errorf("подключение туннеля отменено: %w", startCtx.Err())
+		}
 		return err
 	}
+	defer func() {
+		if !activated {
+			_ = client.Close()
+		}
+	}()
+	stopCloseOnCancel := context.AfterFunc(startCtx, func() { _ = client.Close() })
+	defer stopCloseOnCancel()
 	// Confirm the SSH server permits direct-tcpip to the actual proxy before reporting success.
-	probeCtx, probeCancel := context.WithTimeout(ctx, 8*time.Second)
+	probeCtx, probeCancel := context.WithTimeout(startCtx, 8*time.Second)
 	probe, err := client.DialContext(probeCtx, "tcp", target)
 	probeCancel()
 	if err != nil {
-		_ = client.Close()
-		_ = listener.Close()
+		if startCtx.Err() != nil {
+			return fmt.Errorf("подключение туннеля отменено: %w", startCtx.Err())
+		}
 		return fmt.Errorf("SSH-сервер не открыл соединение к прокси: проверьте AllowTcpForwarding и адрес прокси")
 	}
 	_ = probe.Close()
-	forwardCtx, cancel := context.WithCancel(context.Background())
+	m.mu.Lock()
+	if m.closed || m.pending != attempt || startCtx.Err() != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("подключение туннеля отменено: %w", context.Canceled)
+	}
+	forwardCtx, cancel := context.WithCancel(ctx)
 	s := &session{listener: listener, closeSSH: client.Close, cancel: cancel}
+	m.pending = nil
 	m.active = s
 	now := time.Now()
 	m.state = State{Running: true, IP: ip, LocalAddress: address, Target: target, StartedAt: &now}
+	activated = true
+	m.mu.Unlock()
+	go func() { <-forwardCtx.Done(); s.close() }()
 	go func() {
 		limit := make(chan struct{}, 64)
 		for {
@@ -130,6 +176,10 @@ func (m *Manager) Start(ctx context.Context, sshManager *sshclient.Manager, ip s
 		defer m.mu.Unlock()
 		if m.active == s {
 			m.active = nil
+			if ctx.Err() != nil {
+				m.state = State{}
+				return
+			}
 			m.state.Running = false
 			if err != nil {
 				m.state.Error = "SSH-туннель разорван"
@@ -139,14 +189,24 @@ func (m *Manager) Start(ctx context.Context, sshManager *sshclient.Manager, ip s
 	return nil
 }
 
-func (m *Manager) Stop() {
+func (m *Manager) stop(closing bool) {
 	m.mu.Lock()
+	if closing {
+		m.closed = true
+	}
+	pending := m.pending
+	m.pending = nil
 	s := m.active
 	m.active = nil
 	m.state = State{}
 	m.mu.Unlock()
+	if pending != nil {
+		pending.cancel()
+	}
 	if s != nil {
 		s.close()
 	}
 }
-func (m *Manager) Close() { m.mu.Lock(); m.closed = true; m.mu.Unlock(); m.Stop() }
+
+func (m *Manager) Stop()  { m.stop(false) }
+func (m *Manager) Close() { m.stop(true) }

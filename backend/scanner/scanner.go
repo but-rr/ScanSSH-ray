@@ -139,6 +139,10 @@ func (e *Engine) addEventLocked(message, kind string) {
 
 func (e *Engine) SetAuto(enabled bool) { e.mu.Lock(); e.auto = enabled; e.mu.Unlock() }
 
+// Context ties host operations to this configuration's lifetime. A reload or
+// shutdown cancels operations even if they were starting concurrently with Stop.
+func (e *Engine) Context() context.Context { return e.ctx }
+
 func (e *Engine) Scan(forceInternet bool) bool {
 	return e.startScan(forceInternet, "") == nil
 }

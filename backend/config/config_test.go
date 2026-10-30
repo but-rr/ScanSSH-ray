@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,21 @@ func TestRanges(t *testing.T) {
 	}
 	if !Match("10.0.113.*", "10.0.113.255") || Match("10.0.113.*", "10.0.114.1") {
 		t.Fatal("wildcard matching")
+	}
+}
+
+func TestOverlappingPoolsKeepAllMembersWithoutDuplicateScanTargets(t *testing.T) {
+	pools, ips, err := Expand("10.0.0.1-2,10.0.0.2-3,10.0.0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ips, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Fatalf("duplicate or missing global scan targets: %v", ips)
+	}
+	for i, want := range [][]string{{"10.0.0.1", "10.0.0.2"}, {"10.0.0.2", "10.0.0.3"}, {"10.0.0.2"}} {
+		if !reflect.DeepEqual(pools[i].IPs, want) {
+			t.Fatalf("pool %s lost members: got %v, want %v", pools[i].Label, pools[i].IPs, want)
+		}
 	}
 }
 

@@ -60,6 +60,31 @@ test('a matching draft tag is reusable without creating or moving it', async () 
   assert.ok(calls.every(call => call.method === 'GET'));
 });
 
+test('retry resumes an unpublished release at its original tag after main advances', async () => {
+  for (const release of [null, { draft: true }]) {
+    for (const event of ['workflow_dispatch', 'push']) {
+      const { api, calls } = fixture({ main: oldCommit, target: commit, release });
+      await verifySource(api, { tag, commit, event, ref: event === 'push' ? `refs/tags/${tag}` : 'refs/heads/main', runAttempt: 2 });
+      await inspectRelease(api, tag, commit);
+      await ensureReleaseTag(api, tag, commit);
+      await verifyReleaseTag(api, tag, commit);
+      assert.ok(calls.every(call => call.method === 'GET'));
+    }
+  }
+});
+
+test('retry cannot publish an old untagged build, move a tag or replace a published release', async () => {
+  for (const options of [
+    { main: oldCommit },
+    { main: oldCommit, target: oldCommit, release: { draft: true } },
+    { main: oldCommit, target: commit, release: { draft: false } },
+  ]) {
+    const { api, calls } = fixture(options);
+    await assert.rejects(verifySource(api, { tag, commit, event: 'workflow_dispatch', ref: 'refs/heads/main', runAttempt: 2 }));
+    assert.ok(calls.every(call => call.method === 'GET'));
+  }
+});
+
 test('published versions are never replaced', async () => {
   const { api, calls } = fixture({ target: commit, release: { draft: false } });
   await assert.rejects(ensureReleaseTag(api, tag, commit), /уже опубликован/);

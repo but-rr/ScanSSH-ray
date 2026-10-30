@@ -39,7 +39,7 @@ export async function taggedCommit(api, tag) {
   throw new Error(`Не удалось определить коммит тега ${tag}.`);
 }
 
-export async function verifySource(api, { tag, commit, event, ref }) {
+export async function verifySource(api, { tag, commit, event, ref, runAttempt = 1 }) {
   releaseVersion(tag);
   validateCommit(commit);
   if (event === 'workflow_dispatch') {
@@ -49,6 +49,11 @@ export async function verifySource(api, { tag, commit, event, ref }) {
   }
   const main = await api('GET', 'git/ref/heads/main');
   if (main?.object?.sha !== commit) {
+    // A retry continues the original, already-built release. main may have
+    // advanced while assets were uploading; the tag must still pin this SHA.
+    if (Number.isInteger(Number(runAttempt)) && Number(runAttempt) > 1) {
+      if ((await inspectRelease(api, tag, commit)) === commit) return;
+    }
     throw new Error(`Выбран старый коммит ${commit}. Последний main: ${main?.object?.sha ?? 'не найден'}. Откройте Actions → Windows Release → Run workflow → main. Re-run старого запуска не обновляет исходники.`);
   }
 }
@@ -90,10 +95,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     if (commit !== process.env.GITHUB_SHA) throw new Error('Исходники не соответствуют коммиту запуска workflow.');
     const api = githubClient({ repository: process.env.GITHUB_REPOSITORY, token: process.env.GH_TOKEN, apiUrl: process.env.GITHUB_API_URL });
     if (mode === 'check') {
-      await verifySource(api, { tag, commit, event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF });
-      await inspectRelease(api, tag, commit);
+      await verifySource(api, { tag, commit, event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF, runAttempt: process.env.GITHUB_RUN_ATTEMPT });
+      const existing = await inspectRelease(api, tag, commit);
       if (process.env.GITHUB_STEP_SUMMARY) {
-        appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Release ${tag}\n\nКоммит сборки: [${commit}](https://github.com/${process.env.GITHUB_REPOSITORY}/commit/${commit}).\n\nНовый тег будет создан после успешных тестов и сборки EXE.\n`);
+        const status = existing ? 'Продолжение выпуска с существующим тегом на том же коммите.' : 'Новый тег будет создан после успешных тестов и сборки EXE.';
+        appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Release ${tag}\n\nКоммит сборки: [${commit}](https://github.com/${process.env.GITHUB_REPOSITORY}/commit/${commit}).\n\n${status}\n`);
       }
     } else if (mode === 'ensure-tag') {
       await ensureReleaseTag(api, tag, commit);

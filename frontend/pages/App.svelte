@@ -17,6 +17,9 @@
   const perPage = 10;
   let modal = '';
   let busy = false;
+  let tunnelConnecting = false;
+  let tunnelConnectingIP = '';
+  let tunnelCancelRequested = false;
   let port = 3128;
   let configPort = 0;
   let message = '';
@@ -52,6 +55,7 @@
   $: if (page > maxPage) page = maxPage;
   $: visible = found.slice(page * perPage, (page + 1) * perPage);
   $: cfg = monitor?.config;
+  $: tunnelPending = tunnelConnecting || !!view?.tunnel.connecting;
   $: canTunnel = !!selected?.internet && !!selected?.ssh && !!selected?.internetCheckedAt && Date.now() - new Date(selected.internetCheckedAt).getTime() < ((cfg?.internetInterval || 30) + 10) * 1000;
   $: command = selected && cfg ? `ssh -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="${cfg.knownHosts}"${selected.keyPath ? ` -i "${selected.keyPath}"` : ''} -p ${cfg.sshPort} -L 127.0.0.1:${port}:${cfg.proxyHost}:${cfg.proxyPort} ${selected.user}@${selected.ip}` : '';
   $: if (modal !== 'password') {
@@ -75,6 +79,30 @@
     try { await action(); if (success) notify(success); }
     catch (error) { notify(String(error), true); }
     finally { busy = false; await refresh(); }
+  }
+  async function toggleTunnel() {
+    if (busy) return;
+    if (tunnelPending) {
+      tunnelCancelRequested = true;
+      await run(() => backend().StopTunnel(), 'Подключение туннеля отменено');
+      return;
+    }
+    if (view?.tunnel.running) {
+      await run(() => backend().StopTunnel(), 'Туннель остановлен');
+      return;
+    }
+    if (!selected || !canTunnel || !Number.isInteger(port) || port < 1 || port > 65535) return;
+    const ip = selected.ip;
+    const localPort = port;
+    tunnelConnecting = true; tunnelConnectingIP = ip; tunnelCancelRequested = false;
+    try {
+      await backend().StartTunnel(ip, localPort);
+      if (!tunnelCancelRequested) notify('SSH-туннель запущен');
+    } catch (error) {
+      if (!tunnelCancelRequested) notify(String(error), true);
+    } finally {
+      tunnelConnecting = false; tunnelConnectingIP = ''; await refresh();
+    }
   }
   async function copyCommand() {
     try { await navigator.clipboard.writeText(command); notify('Команда скопирована'); }
@@ -216,16 +244,16 @@
       <div class="right-area"><aside class="card detail-card" aria-label="Подключение и выбранное устройство">
         <div class="connection-heading"><h2 class="card-title">Подключение</h2><span class="protocol-label">SSH TUNNEL</span></div>
         <div class="connection-control" class:connected={view?.tunnel.running}>
-          <div class="power-orbit"><button class="power-button" class:connected={view?.tunnel.running} class:working={busy} disabled={busy || (!view?.tunnel.running && (!canTunnel || !Number.isInteger(port) || port < 1 || port > 65535))} aria-label={view?.tunnel.running ? 'Остановить туннель' : 'Перенаправить трафик'} title={view?.tunnel.running ? 'Остановить туннель' : canTunnel ? 'Перенаправить трафик через выбранный ПК' : 'Выберите ПК со свежей успешной проверкой SSH и интернета'} onclick={() => view?.tunnel.running ? run(() => backend().StopTunnel(), 'Туннель остановлен') : selected && run(() => backend().StartTunnel(selected!.ip, port), 'SSH-туннель запущен')}><Icon name={busy ? 'refresh' : 'power'} size={35}/></button></div>
-          <strong class="connection-title">{busy ? 'Выполняется…' : view?.tunnel.running ? 'Туннель подключён' : 'Перенаправить трафик'}</strong>
-          <span class="connection-caption">{view?.tunnel.running ? `Через ${view.tunnel.ip} · нажмите для отключения` : canTunnel ? 'Через выбранное устройство' : 'Сначала проверьте SSH и интернет'}</span>
+          <div class="power-orbit"><button class="power-button" class:connected={view?.tunnel.running} class:working={tunnelPending} disabled={busy || (!tunnelPending && !view?.tunnel.running && (!canTunnel || !Number.isInteger(port) || port < 1 || port > 65535))} aria-label={tunnelPending ? 'Отменить подключение' : view?.tunnel.running ? 'Остановить туннель' : 'Перенаправить трафик'} title={tunnelPending ? 'Отменить подключение туннеля' : view?.tunnel.running ? 'Остановить туннель' : canTunnel ? 'Перенаправить трафик через выбранный ПК' : 'Выберите ПК со свежей успешной проверкой SSH и интернета'} onclick={toggleTunnel}><Icon name={tunnelPending ? 'refresh' : 'power'} size={35}/></button></div>
+          <strong class="connection-title">{tunnelPending ? 'Подключаем туннель…' : view?.tunnel.running ? 'Туннель подключён' : 'Перенаправить трафик'}</strong>
+          <span class="connection-caption">{tunnelPending ? `Через ${tunnelConnectingIP || view?.tunnel.ip} · нажмите для отмены` : view?.tunnel.running ? `Через ${view.tunnel.ip} · нажмите для отключения` : canTunnel ? 'Через выбранное устройство' : 'Сначала проверьте SSH и интернет'}</span>
         </div>
         {#if view?.tunnel.running}<div class="live-tunnel"><span class="dot ok"></span><span class="mono">{view.tunnel.localAddress}</span><Icon name="arrow" size={13}/><span class="mono">{view.tunnel.target}</span></div>{/if}
         {#if view?.tunnel.error}<p class="error-text tunnel-error" role="alert">{view.tunnel.error}</p>{/if}
         <div class="detail-top"><div class="detail-eyebrow"><span>ВЫБРАННОЕ УСТРОЙСТВО</span><Icon size={15}/></div><button class="detail-host mono host-button copy-ip" disabled={!selected} title="Скопировать IP" aria-label={selected ? `Скопировать IP ${selected.ip}` : 'Устройство не выбрано'} onclick={() => selected && copyIP(selected.ip)}>{selected?.ip || 'Не выбрано'}{#if selected}<Icon name="copy" size={14}/>{/if}</button><div class="detail-hostname">{selected ? `${selected.user} · OpenSSH / Windows` : 'Выберите IP в списке слева'}</div><div class="detail-status" class:limited={selected && kind(selected) === 'warn'} class:offline={!selected || selected.status === 'unknown'}><span class={`dot ${selected ? kind(selected) : ''}`}></span><span>{selected ? labels[selected.status] || selected.status : 'Ожидание выбора устройства'}</span></div>{#if selected && selected.status !== 'online'}<p class="detail-message">{selected.message}</p>{/if}
           <div class="host-actions"><button class="btn host-action" disabled={!selected || busy} title="Открыть CMD выбранного ПК в отдельном окне через SSH" onclick={() => { if (selected) { const ip = selected.ip; void run(() => backend().OpenHostConsole(ip), `Открыта консоль ${ip}`); } }}><Icon name="terminal" size={15}/>Открыть CMD</button><button class="btn admin-password-action" disabled={!selected || busy} title="Изменить пароль локального администратора на выбранном ПК" onclick={openPasswordDialog}><Icon name="shield" size={15}/>Пароль</button></div>
         </div>
-        <div class="fields tunnel-fields"><div><label class="field-label" for="local-port">Локальный порт</label><input class="input mono" id="local-port" type="number" min="1" max="65535" disabled={!!view?.tunnel.running || busy} aria-invalid={!Number.isInteger(port) || port < 1 || port > 65535} bind:value={port}/></div><div><label class="field-label" for="ssh-user">SSH-пользователь</label><input class="input mono" id="ssh-user" value={selected?.user || cfg?.user || ''} readonly/></div>{#if !Number.isInteger(port) || port < 1 || port > 65535}<p class="error-text port-error" role="alert">Укажите порт от 1 до 65535.</p>{/if}</div>
+        <div class="fields tunnel-fields"><div><label class="field-label" for="local-port">Локальный порт</label><input class="input mono" id="local-port" type="number" min="1" max="65535" disabled={tunnelPending || !!view?.tunnel.running || busy} aria-invalid={!Number.isInteger(port) || port < 1 || port > 65535} bind:value={port}/></div><div><label class="field-label" for="ssh-user">SSH-пользователь</label><input class="input mono" id="ssh-user" value={selected?.user || cfg?.user || ''} readonly/></div>{#if !Number.isInteger(port) || port < 1 || port > 65535}<p class="error-text port-error" role="alert">Укажите порт от 1 до 65535.</p>{/if}</div>
         <div class="detail-section"><details class="health-disclosure" open={!!selected && selected.status !== 'online'}><summary><span>Состояние соединения</span><Icon name="down" size={14}/></summary>
           <div class="check-line"><span class="check-name"><Icon name="terminal" size={15}/>Авторизация SSH</span><span class="check-answer" class:ok={selected?.ssh}>{selected?.ssh ? 'Успешно' : selected?.checkedAt ? 'Не подтверждена' : 'Не проверена'}</span></div>
           <div class="check-line"><span class="check-name"><Icon name="globe" size={15}/>{cfg?.testUrl.startsWith('https:') ? 'HTTPS' : 'HTTP'} через прокси</span><span class="check-answer" class:ok={selected?.internet}>{selected?.internet ? `HTTP ${selected.httpCode}` : selected?.internetCheckedAt ? 'Ошибка' : 'Не проверен'}</span></div>
